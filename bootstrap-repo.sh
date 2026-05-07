@@ -161,20 +161,20 @@ ${MARKER_END}"
   fi
 
   if grep -qF -- "$MARKER_BEGIN" "$target" 2>/dev/null; then
+    # Strip existing block (single-line -v args only — BSD awk hates multi-line -v values)
     tmp="$(mktemp)"
-    awk -v begin="$MARKER_BEGIN" -v end="$MARKER_END" -v new="$block" '
-      $0 == begin { in_block = 1; print new; next }
+    awk -v begin="$MARKER_BEGIN" -v end="$MARKER_END" '
+      $0 == begin { in_block = 1; next }
       $0 == end   { in_block = 0; next }
       !in_block   { print }
     ' "$target" > "$tmp"
     mv "$tmp" "$target"
-  else
-    # Append, preserving a trailing newline boundary.
-    if [ -s "$target" ]; then
-      printf '\n' >> "$target"
-    fi
-    printf '%s\n' "$block" >> "$target"
   fi
+  # Append fresh block via shell (no awk -v needed for the multi-line content)
+  if [ -s "$target" ]; then
+    printf '\n' >> "$target"
+  fi
+  printf '%s\n' "$block" >> "$target"
 }
 
 TOTAL_STEPS=12
