@@ -15,6 +15,11 @@ Versioning: SHA-pinned by consumers. Existing rule_ids are immutable once shippe
 - **Phase 1.5 (CI)**: `.github/workflows/test-corpus.yml` — self-test workflow that validates the validator against the corpus on every push to engineering-standards.
 - **Phase 1.5 (bootstrap)**: `bootstrap-repo.sh` — 12-step self-verifying installer. Vendors `commit-rules.json` SHA-pinned, drops .commitlintrc.json + workflow includer + dependabot config + CONTRIBUTING + CLAUDE snippet + AUTHOR-NOTES (if fork), generates local commit-msg hook, dry-runs against last 3 commits, checks Actions enabled, prints TTHW timer. Idempotent. Smoke-tested at 4s first run, 2s on re-run.
 
+
+### Fixed
+- WEB_UI_DEFAULT regex widened from `^Update [A-Z][a-z]+\.md$` to `^Update [A-Z][A-Za-z]*\.md$` so it correctly catches all-caps filenames (`README.md`, `CHANGELOG.md`, `LICENSE.md`). The original regex required mixed-case (`Readme.md`), missing the most common GitHub web-UI default. Caught by CI on first push of test corpus. Rule_id unchanged (semantic widening, not a breaking change).
+- Corpus `# expected:` headers updated from `FORMAT` → `SUBJECT_FORMAT` to match the actual rule_id the validator emits. Naming-mismatch caught by CI on first push.
+
 ### Conventions
 - Conventional Commits format with body-when-it-matters policy (Why required only for `feat` AND >50 lines)
 - Metadata trailer policy (`Skill-Run`, `Test-Suite`, `Reviewed-By`, `Tool`) with fork-strip behavior on upstream-bound branches

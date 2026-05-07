@@ -1,2 +1,2 @@
-# expected: FORMAT
+# expected: SUBJECT_FORMAT
 feat(api) add new endpoint

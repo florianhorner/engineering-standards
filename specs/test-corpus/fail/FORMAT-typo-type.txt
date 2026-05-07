@@ -1,2 +1,2 @@
-# expected: FORMAT
+# expected: SUBJECT_FORMAT
 feet(api): add new endpoint

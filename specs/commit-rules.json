@@ -10,7 +10,19 @@
     "no_version_prefix": true
   },
   "types": {
-    "allowed": ["feat", "fix", "docs", "style", "refactor", "test", "chore", "ci", "build", "perf", "revert"]
+    "allowed": [
+      "feat",
+      "fix",
+      "docs",
+      "style",
+      "refactor",
+      "test",
+      "chore",
+      "ci",
+      "build",
+      "perf",
+      "revert"
+    ]
   },
   "exemptions": {
     "subject_patterns": [
@@ -25,7 +37,9 @@
       "pre-commit-ci[bot]",
       "app/github-actions"
     ],
-    "trusted_bot_skips": ["WHY_REQUIRED"]
+    "trusted_bot_skips": [
+      "WHY_REQUIRED"
+    ]
   },
   "body": {
     "rules": [
@@ -65,7 +79,7 @@
     "subject_only": [
       {
         "rule_id": "WEB_UI_DEFAULT",
-        "pattern": "^Add files via upload$|^Update [A-Z][a-z]+\\.md$|^Initial commit$",
+        "pattern": "^Add files via upload$|^Update [A-Z][A-Za-z]*\\.md$|^Initial commit$",
         "severity": "block",
         "message": "GitHub web-UI default subject; rewrite to describe the change.",
         "fix_hint": "Use type(scope): subject format. Example: 'docs(readme): clarify install steps'.",
@@ -84,7 +98,7 @@
   "trailers": {
     "metadata": {
       "Skill-Run": {
-        "description": "Which gstack skill triggered the commit (e.g., 'ship', 'investigate'). OMIT if not in a skill session — never fabricate.",
+        "description": "Which gstack skill triggered the commit (e.g., 'ship', 'investigate'). OMIT if not in a skill session \u2014 never fabricate.",
         "env_source": "COMMIT_SKILL_RUN"
       },
       "Test-Suite": {
@@ -96,15 +110,24 @@
         "env_source": "COMMIT_REVIEWED_BY"
       },
       "Tool": {
-        "description": "claude-code|codex|conductor|cloud — tool that created the commit. OMIT if undetectable.",
+        "description": "claude-code|codex|conductor|cloud \u2014 tool that created the commit. OMIT if undetectable.",
         "env_source": "COMMIT_TOOL"
       }
     },
     "policy": {
-      "fork_strip": ["Skill-Run", "Reviewed-By", "Tool"],
+      "fork_strip": [
+        "Skill-Run",
+        "Reviewed-By",
+        "Tool"
+      ],
       "fork_strip_rationale": "Strip agent telemetry trailers when committing to a fork branch destined upstream. Different audience (upstream maintainer vs portfolio recruiter). Preserves Co-Authored-By and Tested.",
       "fork_detection_command": "gh repo view --json isFork --jq .isFork",
-      "preserved_on_fork": ["Co-Authored-By", "Tested", "Refs", "Signed-off-by"]
+      "preserved_on_fork": [
+        "Co-Authored-By",
+        "Tested",
+        "Refs",
+        "Signed-off-by"
+      ]
     },
     "override": {
       "trailer": "Policy-Override",
