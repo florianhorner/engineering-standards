@@ -288,7 +288,11 @@ if curl -fsSL --max-time 30 "$DEPENDABOT_URL" -o "$TMP_DEP" 2>/dev/null \
    && [ -s "$TMP_DEP" ]; then
   if [ ! -f "$DEPENDABOT_PATH" ]; then
     mkdir -p "$(dirname "$DEPENDABOT_PATH")"
-    cp "$TMP_DEP" "$DEPENDABOT_PATH"
+    {
+      printf '# BEGIN: commit-message-standards\n'
+      cat "$TMP_DEP"
+      printf '# END: commit-message-standards\n'
+    } > "$DEPENDABOT_PATH"
     TOUCHED_FILES+=("$DEPENDABOT_PATH")
     step_pass "dependabot.yml (created)"
   else
