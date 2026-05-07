@@ -355,11 +355,7 @@ if curl -fsSL --max-time 30 "$CLAUDE_SNIPPET_URL" -o "$TMP_CL" 2>/dev/null \
   CONTENT="$(cat "$TMP_CL")"
   # If the snippet already carries its own markers, strip them — we wrap the
   # body in our standard markers to keep the idempotency contract uniform.
-  CONTENT_STRIPPED="$(printf '%s' "$CONTENT" | awk '
-    /^<!-- BEGIN: commit-message-standards/ { next }
-    /^<!-- END: commit-message-standards/   { next }
-    { print }
-  ')"
+  CONTENT_STRIPPED="$(printf '%s\n' "$CONTENT" | grep -vE '^<!-- (BEGIN|END): commit-message-standards')"
   render_marker_block "$CLAUDE_MD" "$CONTENT_STRIPPED"
   TOUCHED_FILES+=("$CLAUDE_MD")
   step_pass "CLAUDE.md"
@@ -377,11 +373,7 @@ TMP_CO="$(mktemp)"
 if curl -fsSL --max-time 30 "$CONTRIB_URL" -o "$TMP_CO" 2>/dev/null \
    && [ -s "$TMP_CO" ]; then
   CONTENT="$(cat "$TMP_CO")"
-  CONTENT_STRIPPED="$(printf '%s' "$CONTENT" | awk '
-    /^<!-- BEGIN: commit-message-standards/ { next }
-    /^<!-- END: commit-message-standards/   { next }
-    { print }
-  ')"
+  CONTENT_STRIPPED="$(printf '%s\n' "$CONTENT" | grep -vE '^<!-- (BEGIN|END): commit-message-standards')"
   render_marker_block "$CONTRIBUTING_MD" "$CONTENT_STRIPPED"
   TOUCHED_FILES+=("$CONTRIBUTING_MD")
   step_pass "CONTRIBUTING.md"
