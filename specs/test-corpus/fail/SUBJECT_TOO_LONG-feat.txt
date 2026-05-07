@@ -1,0 +1,2 @@
+# expected: SUBJECT_TOO_LONG
+feat(curve-card): add a really really really really really really long subject describing every single change in detail

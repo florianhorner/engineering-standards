@@ -1,0 +1,182 @@
+# test-corpus.yml
+#
+# Runs the canonical commit-msg validator (generated from specs/commit-rules.json)
+# against the entire test corpus on every push to main and every PR.
+#
+# Contract:
+#   - For each `specs/test-corpus/pass/*.txt`         → validator MUST exit 0
+#   - For each `specs/test-corpus/fail/*.txt`         → validator MUST exit 1
+#                                                       AND the rule_id from the
+#                                                       `# expected: <RULE_ID>`
+#                                                       header MUST appear in
+#                                                       stderr (BLOCK: line).
+#   - For each `specs/test-corpus/false-positives/*.txt` → validator MUST exit 0
+#
+# Any mismatch fails the workflow loudly with a per-case error message — this
+# is the regression suite that guarantees the corpus and the rules stay in sync.
+
+name: test-corpus
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test-corpus:
+    name: validator vs test corpus
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      LC_ALL: C.UTF-8
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Generate validator hook from rules
+        run: |
+          set -euo pipefail
+          mkdir -p .ci-tmp
+          python3 validator/generate-hook.py > .ci-tmp/commit-msg-hook
+          chmod +x .ci-tmp/commit-msg-hook
+          echo "Generated $(wc -l < .ci-tmp/commit-msg-hook) lines."
+
+      - name: Run validator against test corpus
+        id: corpus
+        run: |
+          set -uo pipefail
+
+          PASS_DIR="specs/test-corpus/pass"
+          FAIL_DIR="specs/test-corpus/fail"
+          FP_DIR="specs/test-corpus/false-positives"
+
+          TOTAL=0
+          MISMATCH=0
+          MISMATCH_LOG=".ci-tmp/mismatches.log"
+          : > "$MISMATCH_LOG"
+
+          # --- pass/ — must exit 0 ---
+          if [ -d "$PASS_DIR" ]; then
+            for f in "$PASS_DIR"/*.txt; do
+              [ -e "$f" ] || continue
+              TOTAL=$((TOTAL + 1))
+              # The validator hook expects a path; it strips lines starting
+              # with `#` already (matches git's editor convention), so test
+              # files with `# note:` headers Just Work.
+              if .ci-tmp/commit-msg-hook "$f" 2> ".ci-tmp/last.err"; then
+                echo "PASS  $f"
+              else
+                MISMATCH=$((MISMATCH + 1))
+                {
+                  echo "MISMATCH: $f — expected exit 0, got non-zero. stderr:"
+                  cat .ci-tmp/last.err
+                  echo "---"
+                } | tee -a "$MISMATCH_LOG"
+              fi
+            done
+          fi
+
+          # --- false-positives/ — must exit 0 ---
+          if [ -d "$FP_DIR" ]; then
+            for f in "$FP_DIR"/*.txt; do
+              [ -e "$f" ] || continue
+              TOTAL=$((TOTAL + 1))
+              if .ci-tmp/commit-msg-hook "$f" 2> ".ci-tmp/last.err"; then
+                echo "PASS  $f (false-positive — correctly accepted)"
+              else
+                MISMATCH=$((MISMATCH + 1))
+                {
+                  echo "MISMATCH: $f — false-positive expected exit 0, got non-zero. stderr:"
+                  cat .ci-tmp/last.err
+                  echo "---"
+                } | tee -a "$MISMATCH_LOG"
+              fi
+            done
+          fi
+
+          # --- fail/ — must exit non-zero AND expected RULE_ID in stderr ---
+          if [ -d "$FAIL_DIR" ]; then
+            for f in "$FAIL_DIR"/*.txt; do
+              [ -e "$f" ] || continue
+              TOTAL=$((TOTAL + 1))
+              # Extract `# expected: RULE_A, RULE_B` from line 1.
+              EXPECTED_LINE="$(head -n1 "$f")"
+              EXPECTED_IDS=""
+              case "$EXPECTED_LINE" in
+                "# expected:"*)
+                  EXPECTED_IDS="$(printf '%s' "$EXPECTED_LINE" | sed 's/^# expected:[[:space:]]*//' | tr ',' ' ')"
+                  ;;
+              esac
+              if [ -z "$EXPECTED_IDS" ]; then
+                MISMATCH=$((MISMATCH + 1))
+                echo "MISMATCH: $f — missing or malformed `# expected:` header on line 1." \
+                  | tee -a "$MISMATCH_LOG"
+                continue
+              fi
+
+              if .ci-tmp/commit-msg-hook "$f" 2> ".ci-tmp/last.err"; then
+                MISMATCH=$((MISMATCH + 1))
+                {
+                  echo "MISMATCH: $f — expected non-zero exit, got 0. stderr was:"
+                  cat .ci-tmp/last.err
+                  echo "---"
+                } | tee -a "$MISMATCH_LOG"
+                continue
+              fi
+
+              # Verify each expected rule_id appears in stderr.
+              ALL_FOUND=1
+              for RID in $EXPECTED_IDS; do
+                # Trim whitespace.
+                RID_T="$(printf '%s' "$RID" | tr -d '[:space:]')"
+                [ -z "$RID_T" ] && continue
+                if ! grep -qE "^BLOCK: ${RID_T} " ".ci-tmp/last.err"; then
+                  ALL_FOUND=0
+                  MISMATCH=$((MISMATCH + 1))
+                  {
+                    echo "MISMATCH: $f — expected rule_id '${RID_T}' in stderr but not found. stderr was:"
+                    cat .ci-tmp/last.err
+                    echo "---"
+                  } | tee -a "$MISMATCH_LOG"
+                fi
+              done
+              if [ "$ALL_FOUND" = "1" ]; then
+                echo "PASS  $f (failed as expected, rule_ids matched: $EXPECTED_IDS)"
+              fi
+            done
+          fi
+
+          echo ""
+          echo "test-corpus summary: $TOTAL cases, $MISMATCH mismatches"
+          {
+            echo "## test-corpus results"
+            echo ""
+            echo "Validated **$TOTAL** corpus cases against generated commit-msg hook."
+            echo ""
+            if [ "$MISMATCH" -eq 0 ]; then
+              echo ":white_check_mark: All cases produced expected outcomes."
+            else
+              echo ":x: **$MISMATCH mismatches.** Details:"
+              echo ""
+              echo '```'
+              cat "$MISMATCH_LOG"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "mismatches=$MISMATCH" >> "$GITHUB_OUTPUT"
+          echo "total=$TOTAL" >> "$GITHUB_OUTPUT"
+
+      - name: Fail if any mismatches
+        if: steps.corpus.outputs.mismatches != '0'
+        run: |
+          echo "::error::test-corpus produced ${{ steps.corpus.outputs.mismatches }} mismatch(es). See job summary."
+          exit 1

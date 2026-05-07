@@ -1,0 +1,4 @@
+perf(stream): preallocate ring buffer to halve gc pressure
+
+Why: empirical — 30% latency reduction on prod traffic mirror at 2x baseline load.
+Tested: benchmark suite shows p99 dropped from 412ms to 287ms.

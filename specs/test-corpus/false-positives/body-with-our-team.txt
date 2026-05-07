@@ -1,0 +1,6 @@
+docs(readme): document escalation path
+
+# note: body uses "our team" — first-person was dropped from banned list, must pass
+Why: makes it clear which Slack channel to ping during incidents.
+
+When the encoder hangs, our team uses this path: page on-call, then file in #ops.

@@ -1,0 +1,4 @@
+revert: "feat(api): rate-limit by token"
+
+Why: triggered cascade rate-limits on legitimate batch jobs; revert pending design.
+Refs: incident #42

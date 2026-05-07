@@ -1,0 +1,4 @@
+# expected: OPERATOR_ATTRIBUTION
+fix(streamer): clear stuck encoder thread on restart
+
+florian asked me to fix this since the loop hung again last night.

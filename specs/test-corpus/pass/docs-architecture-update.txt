@@ -1,0 +1,4 @@
+docs(architecture): document fork-strip trailer policy
+
+Why: contributors keep adding Skill-Run trailers to upstream PRs; document the rule.
+Refs: see commit-message-spec.md#fork-branch-behavior

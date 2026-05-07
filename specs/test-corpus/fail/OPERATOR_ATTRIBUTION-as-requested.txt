@@ -1,0 +1,4 @@
+# expected: OPERATOR_ATTRIBUTION
+chore(ci): pin actions to SHA pins
+
+Updated all floating action references to immutable SHA pins as requested by ops.

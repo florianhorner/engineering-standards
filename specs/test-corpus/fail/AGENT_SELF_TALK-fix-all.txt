@@ -1,0 +1,4 @@
+# expected: AGENT_SELF_TALK
+chore: blanket fix pass
+
+Going to fix all the lint warnings in this commit.

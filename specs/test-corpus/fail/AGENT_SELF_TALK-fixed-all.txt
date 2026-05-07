@@ -1,0 +1,4 @@
+# expected: AGENT_SELF_TALK
+fix(api): batch fixes from QA
+
+Fixed all the issues that came up during the QA pass.

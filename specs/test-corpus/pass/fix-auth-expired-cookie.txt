@@ -1,0 +1,1 @@
+fix(auth): handle expired session cookie returning undefined

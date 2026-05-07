@@ -1,0 +1,4 @@
+# expected: OPERATOR_ATTRIBUTION
+fix(streamer): patch reconnect path
+
+Patched the path per my request to handle the disconnect race.

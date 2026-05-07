@@ -1,0 +1,4 @@
+feat(api): add per-request rate-limit configuration option
+
+# note: subject contains "per-request" string — OPERATOR_ATTRIBUTION pattern includes "per request", but the rule is body-only, so subject must pass
+Why: ops needs different rate limits for batch vs interactive callers.

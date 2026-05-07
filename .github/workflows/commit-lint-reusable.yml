@@ -1,0 +1,323 @@
+# commit-lint-reusable.yml
+#
+# AUTO-CALLED by consumer repos via `workflow_call`. Do NOT call directly here.
+#
+# Consumer usage (per-repo `.github/workflows/commit-lint.yml`):
+#
+#     name: commit-lint
+#     on:
+#       pull_request:
+#         branches: [main]
+#     jobs:
+#       commit-lint:
+#         uses: florianhorner/engineering-standards/.github/workflows/commit-lint-reusable.yml@<SHA-PIN>
+#         permissions:
+#           contents: read
+#           pull-requests: write
+#
+# DO NOT add a `secrets:` block on the consumer side — the rules are public and
+# this workflow needs no secrets beyond the auto-provided GITHUB_TOKEN.
+#
+# Architecture: per the operator manual, rules are vendored in each consumer
+# repo at `.config/commit-rules.json` (SHA-pinned at bootstrap time). This
+# workflow reads that file, runs the same Python validator that the local
+# commit-msg hook runs, and additionally runs commitlint as a belt-and-braces
+# format check. Drift between local hook and CI is therefore structurally
+# impossible — both consume the same rules.json snapshot.
+
+name: commit-lint-reusable
+
+on:
+  workflow_call:
+    # No inputs required. Rules live in the consumer repo at .config/commit-rules.json.
+
+permissions:
+  contents: read
+  pull-requests: write   # needed for `gh pr review --comment` per DX D3
+
+jobs:
+  validate:
+    name: validate commit messages
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      # Ensure deterministic regex behavior across runners.
+      LC_ALL: C.UTF-8
+      ENGSTD_REPO: florianhorner/engineering-standards
+      # Pin the engineering-standards ref the validator script is fetched from.
+      # Consumers can override by setting the env on the calling workflow,
+      # but the default tracks main so consumers re-pin via the SHA in their
+      # own `uses:` line on the wrapper workflow.
+      ENGSTD_REF: main
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      # 1. Checkout the consumer repo with full history — needed for git merge-base.
+      - name: Checkout consumer repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # 2. Checkout engineering-standards alongside so we can use the canonical
+      #    Python generator/validator script. We pin to ENGSTD_REF (default main).
+      #    The actual rule contents come from the consumer's vendored copy at
+      #    .config/commit-rules.json — engineering-standards is only fetched here
+      #    for the validator code, not the rules.
+      - name: Checkout engineering-standards (validator code)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.ENGSTD_REPO }}
+          ref: ${{ env.ENGSTD_REF }}
+          path: .engineering-standards
+
+      # 3. Setup Node 20 with npm cache so commitlint installs are warm.
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      # 4. Install pinned commitlint (belt-and-braces format check alongside
+      #    the Python validator). Pinned to 19.5.0 — bump deliberately.
+      - name: Install commitlint (pinned)
+        run: |
+          npm install --no-save \
+            @commitlint/cli@19.5.0 \
+            @commitlint/config-conventional@19.5.0
+
+      # 5. Setup Python 3 — the same generator invoked by the local commit-msg
+      #    hook produces the validator script that runs here for parity.
+      - name: Setup Python 3
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      # 6. Verify the consumer has vendored the rules. If not, fail loudly with
+      #    a copy-paste fix command — this is the only sensible behavior since
+      #    the workflow has no rule fallback by design.
+      - name: Verify vendored rules present
+        run: |
+          if [ ! -f ".config/commit-rules.json" ]; then
+            {
+              echo "## commit-lint: missing vendored rules"
+              echo ""
+              echo "This repo has not vendored \`.config/commit-rules.json\`."
+              echo "Run the bootstrap script to install it:"
+              echo ""
+              echo '```'
+              echo "bash <(curl -fsSL https://raw.githubusercontent.com/florianhorner/engineering-standards/main/bootstrap-repo.sh) ."
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::Missing .config/commit-rules.json — run bootstrap-repo.sh"
+            exit 2
+          fi
+
+      # 7. Resolve the commit range. We validate every non-merge commit between
+      #    the merge-base of origin/main and HEAD. This is bounded — no
+      #    full-history scan — and it matches the local pre-push hook semantics.
+      - name: Compute commit range
+        id: range
+        run: |
+          set -euo pipefail
+          # On pull_request events, github.base_ref is the target branch.
+          BASE_REF="${{ github.base_ref }}"
+          if [ -z "$BASE_REF" ]; then
+            BASE_REF="main"
+          fi
+          # Make sure we have the base branch locally for merge-base.
+          git fetch --no-tags origin "$BASE_REF"
+          MERGE_BASE="$(git merge-base "origin/${BASE_REF}" HEAD)"
+          echo "merge_base=$MERGE_BASE" >> "$GITHUB_OUTPUT"
+          # Bounded list of SHAs (no merges).
+          RANGE_SHAS="$(git rev-list --no-merges "${MERGE_BASE}..HEAD")"
+          {
+            echo "shas<<EOF_RANGE"
+            echo "$RANGE_SHAS"
+            echo "EOF_RANGE"
+          } >> "$GITHUB_OUTPUT"
+          COUNT="$(printf '%s\n' "$RANGE_SHAS" | grep -cv '^$' || true)"
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+          echo "Validating $COUNT commits in range ${MERGE_BASE}..HEAD"
+
+      # 8. Generate the commit-msg validator hook from the consumer's vendored
+      #    rules using the canonical Python generator. We then run that hook
+      #    against each commit message file. This is byte-for-byte the same
+      #    code path the local hook runs — drift is structurally impossible.
+      - name: Generate validator hook from vendored rules
+        run: |
+          set -euo pipefail
+          # Stage the vendored rules where the generator expects them.
+          mkdir -p .engineering-standards/specs
+          cp .config/commit-rules.json .engineering-standards/specs/commit-rules.json
+          mkdir -p .ci-tmp
+          python3 .engineering-standards/validator/generate-hook.py > .ci-tmp/commit-msg-hook
+          chmod +x .ci-tmp/commit-msg-hook
+
+      # 9. Validate each commit message in range. Failures are aggregated into
+      #    a markdown table emitted to $GITHUB_STEP_SUMMARY. Per-commit review
+      #    comments are posted with `gh pr review --comment`. Each individual
+      #    validation is wrapped in a 30s `timeout` to bound runaway regex.
+      - name: Validate commit messages
+        id: validate
+        run: |
+          set -uo pipefail
+          mkdir -p .ci-tmp/messages .ci-tmp/results
+
+          SHAS='${{ steps.range.outputs.shas }}'
+          if [ -z "${SHAS//[[:space:]]/}" ]; then
+            echo "No commits to validate (empty range). Likely a fast-forward PR with only merges."
+            echo "## commit-lint: nothing to validate" >> "$GITHUB_STEP_SUMMARY"
+            echo "fail_count=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          FAIL_COUNT=0
+          # Header for the markdown failure table — written only if we have failures.
+          FAIL_TABLE_FILE=".ci-tmp/fail-table.md"
+          : > "$FAIL_TABLE_FILE"
+
+          # Validate the PR title (becomes squash-merge subject). We treat
+          # it as a synthetic commit message: subject only, empty body.
+          PR_TITLE='${{ github.event.pull_request.title }}'
+          if [ -n "$PR_TITLE" ]; then
+            PR_MSG_FILE=".ci-tmp/messages/__pr_title__.txt"
+            printf '%s\n' "$PR_TITLE" > "$PR_MSG_FILE"
+            PR_RESULT_FILE=".ci-tmp/results/__pr_title__.err"
+            if ! timeout 30s .ci-tmp/commit-msg-hook "$PR_MSG_FILE" 2> "$PR_RESULT_FILE"; then
+              FAIL_COUNT=$((FAIL_COUNT + 1))
+              SUBJECT_TRUNC="${PR_TITLE:0:60}"
+              # Extract first BLOCK line for the table.
+              RULE_ID="$(grep -E '^BLOCK: ' "$PR_RESULT_FILE" | head -n1 | awk '{print $2}')"
+              FIX_HINT="$(grep -E '^FIX: ' "$PR_RESULT_FILE" | head -n1 | sed 's/^FIX: //')"
+              printf '| PR title | `%s` | `%s` | %s |\n' \
+                "${SUBJECT_TRUNC//|/\\|}" "${RULE_ID:-UNKNOWN}" "${FIX_HINT//|/\\|}" \
+                >> "$FAIL_TABLE_FILE"
+            fi
+          fi
+
+          while IFS= read -r SHA; do
+            [ -z "$SHA" ] && continue
+            MSG_FILE=".ci-tmp/messages/${SHA}.txt"
+            RESULT_FILE=".ci-tmp/results/${SHA}.err"
+            git log -1 --format=%B "$SHA" > "$MSG_FILE"
+            SUBJECT="$(head -n1 "$MSG_FILE")"
+
+            # Bot allowlist: skip WHY_REQUIRED for trusted bots. The hook
+            # itself does not know about authors; we honor the allowlist
+            # here in CI by checking author name. Other rules still apply.
+            AUTHOR_NAME="$(git log -1 --format=%an "$SHA")"
+            BOT_SKIP=0
+            case "$AUTHOR_NAME" in
+              "renovate[bot]"|"dependabot[bot]"|"pre-commit-ci[bot]"|"app/github-actions")
+                BOT_SKIP=1
+                ;;
+            esac
+
+            if ! timeout 30s .ci-tmp/commit-msg-hook "$MSG_FILE" 2> "$RESULT_FILE"; then
+              # Check if the only failure is WHY_REQUIRED and the author is a
+              # trusted bot — if so, treat as pass.
+              if [ "$BOT_SKIP" = "1" ] \
+                && grep -qE '^BLOCK: WHY_REQUIRED ' "$RESULT_FILE" \
+                && [ "$(grep -cE '^BLOCK: ' "$RESULT_FILE")" = "1" ]; then
+                continue
+              fi
+              FAIL_COUNT=$((FAIL_COUNT + 1))
+              SUBJECT_TRUNC="${SUBJECT:0:60}"
+              RULE_ID="$(grep -E '^BLOCK: ' "$RESULT_FILE" | head -n1 | awk '{print $2}')"
+              FIX_HINT="$(grep -E '^FIX: ' "$RESULT_FILE" | head -n1 | sed 's/^FIX: //')"
+              printf '| `%s` | `%s` | `%s` | %s |\n' \
+                "${SHA:0:7}" "${SUBJECT_TRUNC//|/\\|}" "${RULE_ID:-UNKNOWN}" "${FIX_HINT//|/\\|}" \
+                >> "$FAIL_TABLE_FILE"
+            fi
+          done <<< "$SHAS"
+
+          echo "fail_count=$FAIL_COUNT" >> "$GITHUB_OUTPUT"
+
+          # Emit summary table to $GITHUB_STEP_SUMMARY (DX D3).
+          {
+            echo "## commit-lint results"
+            echo ""
+            echo "Validated **${{ steps.range.outputs.count }} commits** in range \`${{ steps.range.outputs.merge_base }}..HEAD\` (plus PR title)."
+            echo ""
+            if [ "$FAIL_COUNT" -eq 0 ]; then
+              echo ":white_check_mark: All commit messages conform to the spec."
+              echo ""
+              echo "Spec: https://github.com/florianhorner/engineering-standards/blob/main/specs/commit-message-spec.md"
+            else
+              echo ":x: **${FAIL_COUNT} failures.**"
+              echo ""
+              echo "| SHA | subject | rule | fix hint |"
+              echo "|---|---|---|---|"
+              cat "$FAIL_TABLE_FILE"
+              echo ""
+              echo "Spec: https://github.com/florianhorner/engineering-standards/blob/main/specs/commit-message-spec.md"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # 10. Belt-and-braces commitlint pass — using the standard config so the
+      #     conventional-commits format check has a second authority. This
+      #     catches anything the rules.json validator doesn't, and any
+      #     mismatch between the two surfaces drift in CI fast.
+      - name: Run commitlint (belt-and-braces)
+        if: steps.validate.outputs.fail_count == '0'
+        run: |
+          set -euo pipefail
+          # Use the per-repo `.commitlintrc.json` (vendored at bootstrap) as
+          # the authority. Fall back to a minimal inline config only if none
+          # exists, so this step never silently no-ops.
+          if [ ! -f ".commitlintrc.json" ] && [ ! -f ".commitlintrc" ] && [ ! -f "commitlint.config.js" ]; then
+            cat > .commitlintrc.json <<'JSON'
+          {"extends": ["@commitlint/config-conventional"]}
+          JSON
+          fi
+          # Validate the same range using commitlint --from / --to.
+          npx commitlint \
+            --from '${{ steps.range.outputs.merge_base }}' \
+            --to HEAD \
+            --verbose
+
+      # 11. Post per-commit review comments for each failure (DX D3).
+      #     Skipped on push events because there is no PR to comment on.
+      - name: Post per-commit PR review comments
+        if: failure() && github.event_name == 'pull_request' && github.event.pull_request.number != ''
+        run: |
+          set -uo pipefail
+          PR_NUMBER='${{ github.event.pull_request.number }}'
+          if [ -z "$PR_NUMBER" ]; then
+            echo "No PR number available — skipping comment posting."
+            exit 0
+          fi
+          # Aggregate all per-commit error files into a single review.
+          BODY_FILE=".ci-tmp/review-body.md"
+          {
+            echo "Commit-lint found violations. Each failing commit/PR-title is below."
+            echo ""
+            echo "Spec: https://github.com/florianhorner/engineering-standards/blob/main/specs/commit-message-spec.md"
+            echo ""
+            for f in .ci-tmp/results/*.err; do
+              [ -s "$f" ] || continue
+              SHA="$(basename "$f" .err)"
+              echo "### \`${SHA}\`"
+              echo ""
+              echo '```'
+              cat "$f"
+              echo '```'
+              echo ""
+            done
+          } > "$BODY_FILE"
+          gh pr review "$PR_NUMBER" \
+            --request-changes \
+            --body-file "$BODY_FILE" \
+            --repo "${{ github.repository }}" || {
+              # If `request-changes` fails (e.g. self-review prohibited),
+              # fall back to a plain comment.
+              gh pr comment "$PR_NUMBER" \
+                --body-file "$BODY_FILE" \
+                --repo "${{ github.repository }}"
+            }
+
+      # 12. Final fail/pass gate.
+      - name: Fail if any violations
+        if: steps.validate.outputs.fail_count != '0'
+        run: |
+          echo "::error::Commit-lint found ${{ steps.validate.outputs.fail_count }} violation(s). See job summary."
+          exit 1

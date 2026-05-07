@@ -1,0 +1,2 @@
+# expected: SUBJECT_TOO_LONG
+feat(scope): subject deliberately sized to seventy-three characters total

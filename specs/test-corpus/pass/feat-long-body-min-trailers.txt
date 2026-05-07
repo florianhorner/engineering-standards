@@ -1,0 +1,7 @@
+feat(jamendo): add country and order filter to track search
+
+Why: Italy launch needs region-scoped catalog; current global feed is 92% non-IT.
+Tested: integration tests for IT/DE/FR scopes; unit tests for order param parsing.
+Refs: closes #134
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>

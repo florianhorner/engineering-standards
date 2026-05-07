@@ -1,0 +1,4 @@
+fix(auth): patch session expiry edge case
+
+# note: body uses "addressed" but NOT followed by "all" — AGENT_SELF_TALK pattern is "addressed all"; partial match must pass
+Why: the cookie path was not addressed during the original auth refactor.

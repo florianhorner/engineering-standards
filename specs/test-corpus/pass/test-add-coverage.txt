@@ -1,0 +1,1 @@
+test(streamer): add coverage for websocket reconnect after kill

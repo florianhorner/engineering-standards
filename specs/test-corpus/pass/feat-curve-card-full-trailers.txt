@@ -1,0 +1,11 @@
+feat(curve-card): add brightness scrubber with bar gauges
+
+Why: ops team needs at-a-glance brightness state without opening editor.
+Tested: e2e curve-editor + unit tests for scrubber state.
+Refs: closes #67
+
+Tool: claude-code
+Skill-Run: ship
+Test-Suite: 247/247
+Reviewed-By: codex
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>

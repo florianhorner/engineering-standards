@@ -1,0 +1,6 @@
+docs(changelog): note upcoming deprecation
+
+# note: body mentions "v1.2.3" — VERSION_IN_SUBJECT regex is ^v[0-9], anchored to subject start, so body usage must pass
+Why: give downstream callers a heads-up before we cut the release.
+
+The v1.2.3 release will deprecate the legacy /search endpoint in favor of /search/v2.

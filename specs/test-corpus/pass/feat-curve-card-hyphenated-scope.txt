@@ -1,0 +1,1 @@
+feat(curve-card): add scrubber with hyphenated-scope name

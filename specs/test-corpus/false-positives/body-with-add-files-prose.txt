@@ -1,0 +1,7 @@
+feat(uploader): support multi-file batch upload
+
+# note: body uses "add files via upload" prose — WEB_UI_DEFAULT regex is anchored ^...$ on subject only, so body usage must pass
+Why: customers asked for batch ingestion; one-at-a-time was their #1 complaint.
+
+In batch mode we add files via upload in chunks of 10 to keep the request size sane.
+Tested: integration tests cover 1, 10, 100 file batches.

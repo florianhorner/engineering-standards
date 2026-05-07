@@ -1,0 +1,3 @@
+Revert "feat(api): rate-limit"
+
+This reverts commit abc1234def5678.

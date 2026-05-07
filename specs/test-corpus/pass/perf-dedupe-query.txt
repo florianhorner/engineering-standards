@@ -1,0 +1,1 @@
+perf(query): dedupe N+1 lookup in Foo.query hot loop

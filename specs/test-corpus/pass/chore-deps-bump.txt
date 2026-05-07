@@ -1,0 +1,1 @@
+chore(deps): bump foo to 1.2.3
