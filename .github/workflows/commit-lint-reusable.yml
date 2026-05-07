@@ -69,12 +69,11 @@ jobs:
           ref: ${{ env.ENGSTD_REF }}
           path: .engineering-standards
 
-      # 3. Setup Node 20 with npm cache so commitlint installs are warm.
+      # 3. Setup Node 20 (no cache: consumer repos may not have package-lock.json).
       - name: Setup Node 20
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
 
       # 4. Install pinned commitlint (belt-and-braces format check alongside
       #    the Python validator). Pinned to 19.5.0 — bump deliberately.
@@ -276,11 +275,14 @@ jobs:
             --verbose
 
       # 11. Post per-commit review comments for each failure (DX D3).
-      #     Skipped on push events because there is no PR to comment on.
+      #     Only fires when validate.outputs.fail_count != '0' (we have actionable
+      #     rule_id info to surface). If validate skipped entirely (e.g., earlier
+      #     step failed), we have nothing to comment about.
       - name: Post per-commit PR review comments
-        if: failure() && github.event_name == 'pull_request' && github.event.pull_request.number != ''
+        if: steps.validate.outputs.fail_count != '' && steps.validate.outputs.fail_count != '0' && github.event_name == 'pull_request' && github.event.pull_request.number != ''
         run: |
           set -uo pipefail
+          mkdir -p .ci-tmp
           PR_NUMBER='${{ github.event.pull_request.number }}'
           if [ -z "$PR_NUMBER" ]; then
             echo "No PR number available — skipping comment posting."
