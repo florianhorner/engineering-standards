@@ -223,7 +223,7 @@ ${MARKER_END}"
   printf '%s\n' "$block" >> "$target"
 }
 
-TOTAL_STEPS=13
+TOTAL_STEPS=14
 
 # ---------------------------------------------------------------------------
 # Step 1: vendor commit-rules.json (SHA-pinned)
@@ -629,9 +629,86 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Step 13: TTHW timer + final summary
+# Step 13: auto-create runtime proof file for verify-claims artifact reference
 # ---------------------------------------------------------------------------
-step_start 13 "$TOTAL_STEPS" "compute TTHW"
+# Phase 5B asymmetry: 3 of 6 PRs had a runtime proof file and 3 didn't, which
+# left verify-claims unable to attach a uniform artifact. Going forward EVERY
+# bootstrapped repo gets a proof/<date>-commit-standards-bootstrap-runtime.txt
+# containing what was installed, the SHA pin, validator dry-run result, and a
+# ready-to-paste PR Proof block (prose form per verify-claims@v1.1 workaround).
+step_start 13 "$TOTAL_STEPS" "auto-create runtime proof file"
+PROOF_DATE="$(date -u +%Y-%m-%d)"
+PROOF_TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+PROOF_DIR="proof"
+PROOF_FILE="${PROOF_DIR}/${PROOF_DATE}-commit-standards-bootstrap-runtime.txt"
+mkdir -p "$PROOF_DIR"
+
+PROOF_PASS_COUNT="${#PASS_STEPS[@]}"
+PROOF_WARN_COUNT="${#WARN_STEPS[@]}"
+PROOF_FAIL_COUNT="${#FAIL_STEPS[@]}"
+PROOF_TTHW_PARTIAL=$((SECONDS - START_SECONDS))
+
+# Build the touched-files list (one per line, indented).
+PROOF_TOUCHED=""
+for f in "${TOUCHED_FILES[@]}" "$PROOF_FILE"; do
+  PROOF_TOUCHED="${PROOF_TOUCHED}  ${f}"$'\n'
+done
+
+# Verifications: re-check JSON validity, hook presence, workflow presence.
+PROOF_JSON_OK="no"
+if python3 -c "import json; json.load(open('$RULES_PATH'))" 2>/dev/null; then
+  PROOF_JSON_OK="yes"
+fi
+PROOF_HOOK_OK="no"
+[ -x "$HOOK_PATH" ] && PROOF_HOOK_OK="yes"
+PROOF_WORKFLOW_OK="no"
+[ -f "$CI_WORKFLOW_PATH" ] && PROOF_WORKFLOW_OK="yes"
+
+# Validator dry-run summary string.
+if [ -z "${LAST_3:-}" ]; then
+  PROOF_DRYRUN="no commits yet — fresh repo, nothing to validate"
+elif [ "${DRY_FAIL:-0}" -eq 0 ]; then
+  PROOF_DRYRUN="${DRY_TOTAL}/${DRY_TOTAL} existing commits pass"
+else
+  PROOF_DRYRUN="${DRY_FAIL}/${DRY_TOTAL} existing commits would fail (informational, not blocking)"
+fi
+
+cat > "$PROOF_FILE" <<EOF_PROOF
+Bootstrap runtime artifact for commit-message-standards adoption.
+
+Generated: ${PROOF_TS}
+Engineering-standards SHA: ${ENGSTD_SHA}
+Source: https://github.com/${ENGSTD_REPO}/commit/${ENGSTD_SHA}
+
+Bootstrap result: ${PROOF_PASS_COUNT} pass / ${PROOF_WARN_COUNT} warn / ${PROOF_FAIL_COUNT} fail
+TTHW: ${PROOF_TTHW_PARTIAL}s
+
+Files touched:
+${PROOF_TOUCHED}
+Verification:
+- JSON validates: ${PROOF_JSON_OK}
+- Local hook generated: ${PROOF_HOOK_OK}
+- Workflow installed: ${PROOF_WORKFLOW_OK}
+- Validator dry-run: ${PROOF_DRYRUN}
+
+Suggested PR body Proof block (prose form avoids gh-workflows@v1.1 parser bug):
+
+## Proof
+
+- [ ] build: n/a — bootstrap is config + docs only
+- [x] tests: commit-lint reusable workflow validates this PR head
+- [ ] lint: n/a — no source files modified
+- [x] runtime: ${PROOF_FILE}
+- [ ] schema: n/a — no MQTT or HA interface changes
+EOF_PROOF
+
+TOUCHED_FILES+=("$PROOF_FILE")
+step_pass "runtime proof: ${PROOF_FILE}"
+
+# ---------------------------------------------------------------------------
+# Step 14: TTHW timer + final summary
+# ---------------------------------------------------------------------------
+step_start 14 "$TOTAL_STEPS" "compute TTHW"
 ELAPSED=$((SECONDS - START_SECONDS))
 step_pass "elapsed ${ELAPSED}s (target: <300s for first compliant commit + green CI)"
 
