@@ -739,8 +739,28 @@ if [ ${#MANUAL[@]} -gt 0 ]; then
   done
 fi
 
-printf '\n%sBootstrapped in %ds.%s Target: <5min for first compliant commit + green CI.\n\n' \
+printf '\n%sBootstrapped in %ds.%s Target: <5min for first compliant commit + green CI.\n' \
   "$C_BOLD$C_BLUE" "$ELAPSED" "$C_RESET"
+
+# ---------------------------------------------------------------------------
+# Suggested PR body Proof block (copy-paste straight into `gh pr create`).
+# Mirrors the block written into proof/<date>-bootstrap-runtime.txt so the
+# user has zero friction from "bootstrap done" to "PR opened with correct
+# Proof block." Prose form sidesteps the verify-claims@v1.1 parser bug.
+# ---------------------------------------------------------------------------
+printf '\n%s== Suggested PR body Proof block ==%s\n' "$C_BOLD" "$C_RESET"
+printf '%sCopy-paste into your PR body (or pass via gh pr create --body):%s\n\n' \
+  "$C_DIM" "$C_RESET"
+cat <<EOF_PROOF_BLOCK
+## Proof
+
+- [ ] build: n/a — bootstrap is config + docs only
+- [x] tests: commit-lint reusable workflow validates this PR head
+- [ ] lint: n/a — no source files modified
+- [x] runtime: ${PROOF_FILE}
+- [ ] schema: n/a — no MQTT or HA interface changes
+EOF_PROOF_BLOCK
+printf '\n'
 
 if [ ${#FAIL_STEPS[@]} -gt 0 ]; then
   exit 1
