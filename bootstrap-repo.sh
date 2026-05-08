@@ -28,7 +28,10 @@ readonly DEPENDABOT_PATH=".github/dependabot.yml"
 readonly CLAUDE_MD="CLAUDE.md"
 readonly CONTRIBUTING_MD="CONTRIBUTING.md"
 readonly AUTHOR_NOTES_MD="AUTHOR-NOTES.md"
-readonly HOOK_PATH=".git/hooks/commit-msg"
+# HOOK_PATH resolved at runtime via git rev-parse --git-dir (worktree-safe;
+# `.git` is a file pointer in worktrees, not a directory). Falls back to
+# `.git/hooks/commit-msg` only when not in a git repo (caught earlier in pre-flight).
+HOOK_PATH=""
 readonly MARKER_BEGIN="<!-- BEGIN: commit-message-standards (managed by bootstrap-repo.sh — do not hand-edit) -->"
 readonly MARKER_END="<!-- END: commit-message-standards -->"
 
@@ -462,8 +465,17 @@ case "$IS_FORK" in
 esac
 
 # ---------------------------------------------------------------------------
-# Step 8: generate .git/hooks/commit-msg
+# Step 8: generate commit-msg hook (worktree-safe path resolution)
 # ---------------------------------------------------------------------------
+# Resolve the actual git hooks dir — for regular repos it's .git/hooks/, for
+# worktrees `git rev-parse --git-dir` returns the per-worktree gitdir which is
+# where worktree-local hooks belong. Honors core.hooksPath if set.
+GIT_HOOKS_DIR="$(git config --get core.hooksPath 2>/dev/null || true)"
+if [ -z "$GIT_HOOKS_DIR" ]; then
+  GIT_DIR_RESOLVED="$(git rev-parse --git-dir 2>/dev/null || echo '.git')"
+  GIT_HOOKS_DIR="${GIT_DIR_RESOLVED}/hooks"
+fi
+HOOK_PATH="${GIT_HOOKS_DIR}/commit-msg"
 step_start 8 "$TOTAL_STEPS" "generate ${HOOK_PATH}"
 GENERATOR_URL="${ENGSTD_RAW_BASE}/${ENGSTD_SHA}/validator/generate-hook.py"
 TMP_GEN="$(mktemp)"
