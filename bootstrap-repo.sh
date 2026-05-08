@@ -105,8 +105,8 @@ printf '%sSource:%s  %s\n\n' "$C_BOLD" "$C_RESET" "https://github.com/${ENGSTD_R
 # ---------------------------------------------------------------------------
 printf '%s-- Pre-flight --%s\n' "$C_BOLD" "$C_RESET"
 
-if [ ! -d ".git" ]; then
-  die "pre-flight" "Target is not a git repository (no .git directory)" \
+if ! git rev-parse --git-dir >/dev/null 2>&1; then
+  die "pre-flight" "Target is not a git repository (or worktree)" \
       "cd into a repo with 'git init' first, or pass a valid repo path."
 fi
 info "git repo detected: $(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo 'detached')"
