@@ -121,6 +121,24 @@ if ! gh auth status >/dev/null 2>&1; then
 fi
 info "gh CLI authenticated as $(gh api user --jq .login 2>/dev/null || echo '?')"
 
+# Archived-repo guard: GitHub returns HTTP 403 on push to archived repos, but
+# only AFTER bootstrap has dropped local files — leaving partial state with no
+# way to land it. Catch this up-front. Real cause: conversation-flow blocked
+# Phase 5B push because the repo is archived; bootstrap had already run.
+IS_ARCHIVED="$(gh repo view --json isArchived --jq .isArchived 2>/dev/null || echo 'unknown')"
+case "$IS_ARCHIVED" in
+  true)
+    die "pre-flight" "Target repo is ARCHIVED on GitHub — pushes will fail with HTTP 403" \
+        "Unarchive at https://github.com/$(gh repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null || echo '<owner/repo>')/settings (Settings > Danger Zone), or skip this repo."
+    ;;
+  false)
+    info "repo is active (not archived)"
+    ;;
+  *)
+    info "archive status unknown — gh repo view failed; continuing (likely no remote yet)"
+    ;;
+esac
+
 if ! command -v python3 >/dev/null 2>&1; then
   die "pre-flight" "python3 not installed" \
       "Install Python 3 (macOS: 'brew install python', Linux: apt/yum)."
