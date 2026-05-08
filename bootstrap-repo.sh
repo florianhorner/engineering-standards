@@ -139,6 +139,34 @@ case "$IS_ARCHIVED" in
     ;;
 esac
 
+# Conductor-style untracked files: detect known blockers that cause
+# 'git switch -c <branch> origin/<DEFAULT>' to refuse with "untracked working
+# tree files would be overwritten." Real cause: every Phase 5B agent hit
+# these. Informational only — print + suggest stash; user keeps control.
+CONDUCTOR_UNTRACKED=()
+for f in conductor.json conductor.json.bak entities.json mempalace.yaml; do
+  if [ -f "$f" ] && ! git ls-files --error-unmatch "$f" >/dev/null 2>&1; then
+    CONDUCTOR_UNTRACKED+=("$f")
+  fi
+done
+# Heuristics for common Conductor scratchpad patterns.
+while IFS= read -r f; do
+  [ -z "$f" ] && continue
+  CONDUCTOR_UNTRACKED+=("$f")
+done < <(git ls-files --others --exclude-standard 2>/dev/null \
+  | grep -E '(-orchestrator\.md$|^engineering-.+\.md$)' || true)
+
+if [ "${#CONDUCTOR_UNTRACKED[@]}" -gt 0 ]; then
+  printf '%s%s    Conductor-style untracked files detected (%d):%s\n' \
+    "$C_DIM" "$C_YELLOW" "${#CONDUCTOR_UNTRACKED[@]}" "$C_RESET"
+  for f in "${CONDUCTOR_UNTRACKED[@]}"; do
+    printf '%s      - %s%s\n' "$C_DIM" "$f" "$C_RESET"
+  done
+  printf '%s    These will block "git switch -c <branch> origin/<DEFAULT>".%s\n' "$C_DIM" "$C_RESET"
+  printf '%s    Suggestion: git stash push -u -m "conductor-scratch" -- %s%s\n' \
+    "$C_DIM" "${CONDUCTOR_UNTRACKED[*]}" "$C_RESET"
+fi
+
 if ! command -v python3 >/dev/null 2>&1; then
   die "pre-flight" "python3 not installed" \
       "Install Python 3 (macOS: 'brew install python', Linux: apt/yum)."
