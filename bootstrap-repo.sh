@@ -223,7 +223,7 @@ ${MARKER_END}"
   printf '%s\n' "$block" >> "$target"
 }
 
-TOTAL_STEPS=12
+TOTAL_STEPS=13
 
 # ---------------------------------------------------------------------------
 # Step 1: vendor commit-rules.json (SHA-pinned)
@@ -581,9 +581,57 @@ MANUAL+=("Push and watch CI: 'git push' — the reusable workflow will validate 
 step_pass "manual checklist compiled (${#MANUAL[@]} items)"
 
 # ---------------------------------------------------------------------------
-# Step 12: TTHW timer + final summary
+# Step 12: auto-prettier on dropped files (if consumer has prettier configured)
 # ---------------------------------------------------------------------------
-step_start 12 "$TOTAL_STEPS" "compute TTHW"
+# Real cause: QFE PR #21 build job rejected unformatted RETRO.md; mammamiradio
+# + CID needed mid-PR prettier commits; conversation-intelligence-dashboard
+# had pre-existing prettier debt that interacted with our drops. Detect the
+# consumer's prettier config and format our dropped files with it BEFORE the
+# user commits — eliminates the format-mismatch blocker class entirely.
+step_start 12 "$TOTAL_STEPS" "auto-prettier dropped files"
+PRETTIER_CONFIG=""
+for cfg in .prettierrc .prettierrc.json .prettierrc.yml .prettierrc.yaml prettier.config.js .prettierrc.js; do
+  if [ -f "$cfg" ]; then
+    PRETTIER_CONFIG="$cfg"
+    break
+  fi
+done
+# package.json embedded "prettier" key counts too.
+if [ -z "$PRETTIER_CONFIG" ] && [ -f "package.json" ]; then
+  if python3 -c "import json,sys; sys.exit(0 if 'prettier' in json.load(open('package.json')) else 1)" 2>/dev/null; then
+    PRETTIER_CONFIG="package.json"
+  fi
+fi
+
+if [ -z "$PRETTIER_CONFIG" ]; then
+  step_pass "auto-prettier (no prettier config — skipping)"
+elif ! command -v npx >/dev/null 2>&1; then
+  step_warn "auto-prettier" "prettier config detected ($PRETTIER_CONFIG) but npx not available; skipped"
+else
+  # Format only files this script just dropped (and exist on disk).
+  PRETTIER_TARGETS=()
+  for f in "$COMMITLINTRC_PATH" "$RULES_PATH" ".config/commit-rules.meta.json" \
+           "$DEPENDABOT_PATH" "$CI_WORKFLOW_PATH" "$CLAUDE_MD" "$CONTRIBUTING_MD" \
+           "RETRO.md" "$AUTHOR_NOTES_MD"; do
+    [ -f "$f" ] && PRETTIER_TARGETS+=("$f")
+  done
+  if [ "${#PRETTIER_TARGETS[@]}" -eq 0 ]; then
+    step_pass "auto-prettier (no targets to format)"
+  else
+    PRETTIER_LOG="$(mktemp)"
+    if npx --no-install prettier --write "${PRETTIER_TARGETS[@]}" >"$PRETTIER_LOG" 2>&1; then
+      step_pass "auto-prettier (${#PRETTIER_TARGETS[@]} files formatted via $PRETTIER_CONFIG)"
+    else
+      step_warn "auto-prettier" "prettier --write failed against ${#PRETTIER_TARGETS[@]} files (config: $PRETTIER_CONFIG); see $PRETTIER_LOG"
+    fi
+    rm -f "$PRETTIER_LOG"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# Step 13: TTHW timer + final summary
+# ---------------------------------------------------------------------------
+step_start 13 "$TOTAL_STEPS" "compute TTHW"
 ELAPSED=$((SECONDS - START_SECONDS))
 step_pass "elapsed ${ELAPSED}s (target: <300s for first compliant commit + green CI)"
 
