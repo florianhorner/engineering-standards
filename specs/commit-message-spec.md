@@ -12,12 +12,12 @@ Canonical commit-message standard for every repo and AI tool Florian uses. Machi
 
 **Allowed types:** `feat fix docs style refactor test chore ci build perf revert`
 
-**Subject:** ≤72 chars, imperative mood, no trailing period, no version prefix.
+**Subject:** ≤72 chars, imperative mood, no trailing period. No short version prefix; the 4-component ship-version prefix (`v1.2.3.4 `) is allowed on PR titles.
 
 **Body:** Required only when `feat` AND >50 lines changed. Body must include `Why: <one-line>`. Otherwise optional.
 
 **Banned in body:** operator attribution (`florian asked`), agent self-talk (`addressed all comments`).
-**Banned in subject:** GitHub web-UI defaults (`Add files via upload`, `Update README.md`), version prefix (`v1.2.3`).
+**Banned in subject:** GitHub web-UI defaults (`Add files via upload`, `Update README.md`), short version prefixes (`v1.2.3`, `v2`). The 4-component ship-version prefix (`v1.2.3.4 type: …`) is allowed.
 
 **Exempt subjects** (skip format check entirely): `Merge `, `Revert `, `cherry-pick: `, `[hotfix] `.
 
@@ -77,19 +77,21 @@ chore: addressed all the review comments            # AGENT_SELF_TALK (subject)
 ### Format grammar
 
 ```
-<type>(<optional-scope>): <subject>
+[v<MAJOR.MINOR.PATCH.MICRO> ]<type>(<optional-scope>): <subject>
 
 <optional-body, paragraphs separated by blank lines>
 
 <optional-trailers, single block at end via git interpret-trailers>
 ```
 
+The leading `v<MAJOR.MINOR.PATCH.MICRO> ` is optional and used only on PR titles (which become squash-merge subjects) — see Subjects below.
+
 ### Subjects
 
 - **Length:** ≤72 chars total (type + scope + colon + space + subject).
 - **Imperative mood:** "fix bug" not "fixed bug" or "fixes bug".
 - **No trailing period.** Subjects are not sentences.
-- **No version prefix.** `v1.2.3` belongs in CHANGELOG.md, not commit subjects.
+- **Version prefix.** Short version prefixes (`v1.2.3`, `v2`) are banned — they belong in CHANGELOG.md, not subjects. The 4-component ship-version prefix (`vMAJOR.MINOR.PATCH.MICRO `, e.g. `v0.1.1.1 `) IS allowed at the front of a subject: gstack workspace-aware `/ship` puts it on PR titles (which become squash-merge subjects) as a landing-queue claim. Optional — direct commits omit it.
 - **Scope** is optional; use it for the affected area: `feat(auth)`, `fix(curve-card)`, `docs(readme)`. Single-word, lowercase, hyphenated.
 
 ### Why body
@@ -147,7 +149,7 @@ These rules apply to the BODY only. Subjects rarely contain these phrases legiti
 | Rule ID | Pattern | Example violation | Fix |
 |---|---|---|---|
 | `WEB_UI_DEFAULT` | `^Add files via upload$\|^Update [A-Z][a-z]+\.md$\|^Initial commit$` | "Add files via upload" | Use `type(scope): subject`; describe what was added |
-| `VERSION_IN_SUBJECT` | `^v[0-9]` | "v2.10.11 feat: country filter" | Drop version prefix; use `chore(release): 2.10.11` if needed |
+| `VERSION_IN_SUBJECT` | `^v[0-9]+(\.[0-9]+){0,2}([ :]\|$)` | "v2.10.11 feat: country filter" | Drop the short version prefix; use `chore(release): 2.10.11`. The 4-component `v1.2.3.4 ` ship-version prefix is allowed. |
 
 ### Exemptions
 
