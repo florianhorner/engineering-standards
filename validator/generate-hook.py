@@ -59,10 +59,20 @@ def emit_constants(rules: dict[str, Any]) -> str:
     schema_version = shell_escape(rules["schema_version"])
     allowed_types = "|".join(rules["types"]["allowed"])
     max_length = int(rules["subject"]["max_length"])
+    # Optional version prefix: gstack workspace-aware /ship puts a 4-component
+    # ship-version (vMAJOR.MINOR.PATCH.MICRO) at the front of PR titles as a
+    # landing-queue claim. When `subject.version_prefix.allowed` is true, the
+    # format check accepts it as an optional leading group; direct commits
+    # simply omit it. Short version prefixes stay blocked by VERSION_IN_SUBJECT.
+    version_prefix = rules["subject"].get("version_prefix", {})
+    if version_prefix.get("allowed"):
+        prefix_group = "(" + version_prefix["pattern"] + ")?"
+    else:
+        prefix_group = ""
     return f"""
 SPEC_URL='{spec_url}'
 SCHEMA_VERSION='{schema_version}'
-ALLOWED_TYPES_RE='^({allowed_types})(\\([a-z0-9][a-z0-9-]*\\))?: .+'
+ALLOWED_TYPES_RE='^{prefix_group}({allowed_types})(\\([a-z0-9][a-z0-9-]*\\))?: .+'
 SUBJECT_MAX={max_length}
 """
 

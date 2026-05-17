@@ -1,0 +1,2 @@
+# expected: SUBJECT_FORMAT
+v0.1.1.1 frobnicate: invalid type after version prefix
