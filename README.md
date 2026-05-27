@@ -7,9 +7,9 @@ Florian's public engineering standards. Single source of truth for commit messag
 - **[specs/commit-message-spec.md](specs/commit-message-spec.md)** — Conventional Commits + body-when-it-matters + agent-metadata trailers. 30-second cheat sheet at top.
 - **[specs/commit-rules.json](specs/commit-rules.json)** — Machine-readable rules consumed by validator binary, commit-msg hook, and CI workflow.
 - **[docs/commit-system-operator.md](docs/commit-system-operator.md)** — How to bootstrap a repo, normal flow, override flow, troubleshooting.
-- **[.github/workflows/commit-lint-reusable.yml](.github/workflows/commit-lint-reusable.yml)** *(coming Phase 4)* — Reusable workflow consumer repos call via `uses:`.
-- **[validator/](validator/)** *(coming Phase 1.5)* — TypeScript validator binary. Single implementation that hook + CI + skill all call.
-- **[templates/](templates/)** *(coming Phase 4)* — Drop-in files the bootstrap script copies into consumer repos.
+- **[.github/workflows/commit-lint-reusable.yml](.github/workflows/commit-lint-reusable.yml)** — Reusable workflow consumer repos call via `uses:`.
+- **[validator/](validator/)** — Python hook generator (`generate-hook.py`) that emits the `commit-msg` hook from `specs/commit-rules.json`.
+- **[templates/](templates/)** — Drop-in files the bootstrap script copies into consumer repos.
 
 ## Why a public repo
 
