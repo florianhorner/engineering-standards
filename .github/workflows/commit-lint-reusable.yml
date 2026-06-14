@@ -157,11 +157,20 @@ jobs:
       #    validation is wrapped in a 30s `timeout` to bound runaway regex.
       - name: Validate commit messages
         id: validate
+        env:
+          # Pass user-controlled / multiline values through the environment so they
+          # are NEVER interpolated into the script text. A PR title containing a
+          # single quote (e.g. "pipeline's") otherwise closes the shell string and
+          # crashes the step ("unexpected EOF while looking for matching '"), and is
+          # a script-injection vector. See GitHub's "Understanding the risk of
+          # script injections" guidance.
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          RANGE_SHAS: ${{ steps.range.outputs.shas }}
         run: |
           set -uo pipefail
           mkdir -p .ci-tmp/messages .ci-tmp/results
 
-          SHAS='${{ steps.range.outputs.shas }}'
+          SHAS="$RANGE_SHAS"
           if [ -z "${SHAS//[[:space:]]/}" ]; then
             echo "No commits to validate (empty range). Likely a fast-forward PR with only merges."
             echo "## commit-lint: nothing to validate" >> "$GITHUB_STEP_SUMMARY"
@@ -176,7 +185,8 @@ jobs:
 
           # Validate the PR title (becomes squash-merge subject). We treat
           # it as a synthetic commit message: subject only, empty body.
-          PR_TITLE='${{ github.event.pull_request.title }}'
+          # PR_TITLE comes from the step `env:` above (injection-safe — never
+          # interpolated into the script text, so an apostrophe can't break it).
           if [ -n "$PR_TITLE" ]; then
             PR_MSG_FILE=".ci-tmp/messages/__pr_title__.txt"
             printf '%s\n' "$PR_TITLE" > "$PR_MSG_FILE"
@@ -280,10 +290,13 @@ jobs:
       #     step failed), we have nothing to comment about.
       - name: Post per-commit PR review comments
         if: steps.validate.outputs.fail_count != '' && steps.validate.outputs.fail_count != '0' && github.event_name == 'pull_request' && github.event.pull_request.number != ''
+        env:
+          # Same injection-safe pattern as the validate step — never interpolate
+          # an event value into the script text.
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set -uo pipefail
           mkdir -p .ci-tmp
-          PR_NUMBER='${{ github.event.pull_request.number }}'
           if [ -z "$PR_NUMBER" ]; then
             echo "No PR number available — skipping comment posting."
             exit 0
