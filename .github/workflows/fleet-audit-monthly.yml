@@ -1,0 +1,40 @@
+# Monthly fleet-wide commit-message-standards compliance report.
+#
+# Why this exists (and why it's a GitHub Actions workflow, not a Claude Code
+# cloud routine): cloud routines run in an isolated sandbox with no access to
+# Florian's local filesystem, so they can't walk ~/repos or
+# ~/conductor/workspaces the way the local fleet-audit.sh does. This workflow
+# instead enumerates Florian's real GitHub repos via `gh repo list
+# florianhorner`, which is actually more complete than the local walk —
+# it also catches repos he owns but hasn't cloned to this machine.
+#
+# This workflow is REPORT-ONLY. It never calls bootstrap-repo.sh and never
+# writes to any other repo. It only reads via the GitHub API and, at the end,
+# opens/updates ONE issue in this repo so the report is genuinely visible
+# (an issue notification), not just buried in the job summary.
+name: Fleet Audit (Monthly)
+
+on:
+  schedule:
+    # 08:07 UTC on the 1st of each month. Deliberately not a `:00` boundary —
+    # avoids the exact-hour stampede convention already used elsewhere in
+    # this ecosystem's scheduled workflows.
+    - cron: "7 8 1 * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  fleet-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run fleet-wide compliance audit and file report issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: bash fleet-audit-remote.sh --github-issue
