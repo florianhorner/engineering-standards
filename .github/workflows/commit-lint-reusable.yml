@@ -86,7 +86,7 @@ jobs:
       # 5. Setup Python 3 — the same generator invoked by the local commit-msg
       #    hook produces the validator script that runs here for parity.
       - name: Setup Python 3
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.x'
 
