@@ -11,6 +11,26 @@ Florian's public engineering standards. Single source of truth for commit messag
 - **[validator/](validator/)** *(coming Phase 1.5)* — TypeScript validator binary. Single implementation that hook + CI + skill all call.
 - **[templates/](templates/)** *(coming Phase 4)* — Drop-in files the bootstrap script copies into consumer repos.
 
+## Fleet-wide audits
+
+**[fleet-audit.sh](fleet-audit.sh)** answers "is the whole fleet actually in sync," not just one repo. `bootstrap-repo.sh` makes a single repo compliant; `fleet-audit.sh` walks every local checkout under `~/repos` and `~/conductor/workspaces`, dedupes by origin remote (so N Conductor worktrees of the same repo count once), and classifies each unique repo:
+
+- `THIRD-PARTY-CLONE` — origin owner isn't `florianhorner` (e.g. a local clone of someone else's project). Never touched.
+- `OWN` / `OWN-FORK` — owned by `florianhorner`, checked against the commit-message-standards system: `MISSING` (no `.github/workflows/commit-lint.yml`), `STALE(<N>d)` (SHA pin behind upstream `main`, age from the repo's own `.config/commit-rules.meta.json`), or `FRESH`.
+
+```bash
+# Dry-run: print the compliance table, write nothing.
+bash fleet-audit.sh
+
+# Apply: also auto-bootstrap every OWN repo classified MISSING.
+# STALE (any bucket), OWN-FORK (any status), and THIRD-PARTY-CLONE are never
+# auto-applied — the script prints the exact bootstrap-repo.sh command to run
+# by hand instead.
+bash fleet-audit.sh --apply
+```
+
+**Convention:** since there's no single canonical repo-creation entrypoint to hook this into automatically yet, run `fleet-audit.sh --apply` manually right after `gh repo create` for any brand-new repo.
+
 ## Why a public repo
 
 GitHub blocks public repos from calling reusable workflows in private repos without per-consumer PAT secrets. Florian's portfolio repos (lightener, mammamiradio, etc.) need to consume these workflows, so the canonical source must be public.
