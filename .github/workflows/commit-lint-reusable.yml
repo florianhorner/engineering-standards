@@ -71,7 +71,7 @@ jobs:
 
       # 3. Setup Node 20 (no cache: consumer repos may not have package-lock.json).
       - name: Setup Node 20
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '20'
 
