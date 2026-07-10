@@ -1,0 +1,42 @@
+# ha-app-docs-test.yml
+#
+# Self-test for the ha-app-docs install-docs linter (the analog of test-corpus.yml
+# for the commit validator). Runs the linter against its own corpus and asserts the
+# reference template conforms to the rules, on every push to main and every PR.
+#
+# Contract:
+#   - specs/ha-app-docs-test-corpus/pass/*.md   -> linter exits 0
+#   - specs/ha-app-docs-test-corpus/fail/*.md    -> linter exits 1 AND each rule_id from
+#                                                   the `<!-- ... expected: RULE -->` header
+#                                                   appears on a `BLOCK:` line
+#   - templates/ha-app-docs-README.template.md   -> passes its own rules (conformance)
+
+name: ha-app-docs-test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  ha-app-docs:
+    name: ha-app-docs-lint vs corpus
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run linter against test corpus
+        run: python3 actions/ha-app-docs-lint/run_corpus.py
+
+      - name: Conformance (rules valid, template passes)
+        run: python3 actions/ha-app-docs-lint/conformance_test.py
