@@ -1,6 +1,6 @@
 # engineering-standards
 
-Florian's public engineering standards. Single source of truth for commit message hygiene, code review checklists, and contribution conventions across every repo and AI tool he uses (Claude Code, Conductor, Codex web, Claude Code Cloud, manual git push).
+Florian's public engineering standards. Single source of truth for commit message hygiene, Home Assistant app install-docs, code review checklists, and contribution conventions across every repo and AI tool he uses (Claude Code, Conductor, Codex web, Claude Code Cloud, manual git push).
 
 ## What's here
 
@@ -10,6 +10,12 @@ Florian's public engineering standards. Single source of truth for commit messag
 - **[.github/workflows/commit-lint-reusable.yml](.github/workflows/commit-lint-reusable.yml)** *(coming Phase 4)* — Reusable workflow consumer repos call via `uses:`.
 - **[validator/](validator/)** *(coming Phase 1.5)* — TypeScript validator binary. Single implementation that hook + CI + skill all call.
 - **[templates/](templates/)** *(coming Phase 4)* — Drop-in files the bootstrap script copies into consumer repos.
+
+### HA app docs standard
+
+- **[specs/ha-app-docs-contract.md](specs/ha-app-docs-contract.md)** — Drift-proof install-docs standard for Home Assistant app/add-on repos: require My Home Assistant redirect badges, ban stale nav wording (`Add-on Store`, `Settings > Add-ons`, `Hass.io`).
+- **[specs/ha-app-docs-rules.json](specs/ha-app-docs-rules.json)** — Machine-readable rules (SSOT) consumed by the linter, action, and CI.
+- **[actions/ha-app-docs-lint/](actions/ha-app-docs-lint/)** — Reusable GitHub Action + markdown-aware Python linter. Consumers add one `uses:` step. Repo-type profiles: `addon` / `hacs-integration` / `hacs-frontend`.
 
 ## Fleet-wide audits
 

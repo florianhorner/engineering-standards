@@ -1,0 +1,32 @@
+name: "HA App Docs Lint"
+description: >
+  Drift-proof install-docs linter for Home Assistant app/add-on repos. Requires a
+  My Home Assistant redirect badge for install and bans stale nav wording
+  ("Add-on Store", "Settings > Add-ons", "Hass.io"). Markdown-aware: badge URLs and
+  code blocks never false-positive.
+
+inputs:
+  profile:
+    description: "Repo-type profile: addon | hacs-integration | hacs-frontend"
+    required: false
+    default: "addon"
+  paths:
+    description: "Space-separated files/dirs to scan (relative to the caller's checkout)"
+    required: false
+    default: "README.md docs"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Python
+      # SHA-pinned for reproducibility (consumers pin this action by tag/SHA in turn).
+      uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+      with:
+        python-version: "3.12"
+    - name: Run ha-app-docs-lint
+      shell: bash
+      run: >
+        python3 "${GITHUB_ACTION_PATH}/ha_app_docs_lint.py"
+        --profile "${{ inputs.profile }}"
+        --rules "${GITHUB_ACTION_PATH}/../../specs/ha-app-docs-rules.json"
+        ${{ inputs.paths }}

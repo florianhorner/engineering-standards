@@ -1,0 +1,21 @@
+ha-app-docs-lint runtime proof
+generated: 2026-07-10T20:04:36Z
+commit: 392159327e84c01d65bd810a199c78385cb32551
+
+### corpus (run_corpus.py) ###
+PASS  specs/ha-app-docs-test-corpus/pass/CHANGELOG-historical.md
+PASS  specs/ha-app-docs-test-corpus/pass/badge-url.md
+PASS  specs/ha-app-docs-test-corpus/pass/clean-addon.md
+PASS  specs/ha-app-docs-test-corpus/pass/code-fence.md
+PASS  specs/ha-app-docs-test-corpus/pass/hacs-ok.md
+PASS  specs/ha-app-docs-test-corpus/pass/supervisor-word.md
+PASS  specs/ha-app-docs-test-corpus/fail/hacs-missing-marker.md (failed as expected: SECTION_MARKER)
+PASS  specs/ha-app-docs-test-corpus/fail/hass-io.md (failed as expected: HASS_IO)
+PASS  specs/ha-app-docs-test-corpus/fail/no-badge.md (failed as expected: INSTALL_BADGE_REQUIRED)
+PASS  specs/ha-app-docs-test-corpus/fail/stale-nav.md (failed as expected: ADDON_STORE, SETTINGS_ADDONS)
+
+ha-app-docs corpus: 10 cases, 0 mismatches
+ALL GREEN
+
+### conformance (conformance_test.py) ###
+conformance OK (rules valid, template passes its own check)
