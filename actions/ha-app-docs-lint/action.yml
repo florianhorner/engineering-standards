@@ -11,9 +11,9 @@ inputs:
     required: false
     default: "addon"
   paths:
-    description: "Space-separated files/dirs to scan (relative to the caller's checkout)"
+    description: "Space-separated files/dirs to scan. Empty (default) auto-detects: README.md, plus docs/ when it exists."
     required: false
-    default: "README.md docs"
+    default: ""
 
 runs:
   using: "composite"
@@ -34,7 +34,13 @@ runs:
         HADOCS_PATHS: ${{ inputs.paths }}
       run: |
         set -euo pipefail
-        read -ra _paths <<< "$HADOCS_PATHS"
+        if [ -z "${HADOCS_PATHS// /}" ]; then
+          # auto: README.md, plus docs/ only when it exists (a repo with no docs/ is fine)
+          _paths=(README.md)
+          [ -d docs ] && _paths+=(docs)
+        else
+          read -ra _paths <<< "$HADOCS_PATHS"
+        fi
         python3 "${GITHUB_ACTION_PATH}/ha_app_docs_lint.py" \
           --profile "$HADOCS_PROFILE" \
           --rules "${GITHUB_ACTION_PATH}/../../specs/ha-app-docs-rules.json" \
