@@ -1,0 +1,9 @@
+action auto-detect proof — 2026-07-12T21:15:34Z
+--- repo with README only (no docs/) ---
+ha-app-docs-lint: scanned 1 file(s), 0 missing, 0 changelog(s) skipped
+ha-app-docs-lint OK
+exit=0
+--- corpus ---
+ALL GREEN
+--- conformance ---
+conformance OK (rules valid, template passes, fail-closed guarantees hold)
