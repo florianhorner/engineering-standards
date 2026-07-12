@@ -4,12 +4,17 @@
 Part of florianhorner/engineering-standards. Rules SSOT: specs/ha-app-docs-rules.json.
 Consumed as a reusable GitHub Action (actions/ha-app-docs-lint) or run directly.
 
-Markdown-aware: it matches rendered prose, not raw markdown source. Fenced/inline code
-and markdown link/image URL targets are stripped before matching, so badge URLs and code
-blocks never false-positive (naive substring matching measured ~45% FP on real repos;
-this measured ~0%). CHANGELOG files are excluded (stale phrases live there as legitimate
-history). Output uses the shared BLOCK/FIX/SPEC/OFFENDING format for deterministic parsing.
+Markdown-aware: it matches rendered prose, not raw markdown source. Fenced code (by
+fence type), inline code, markdown link/image URL targets, link brackets, and HTML
+comments/tags are stripped before phrase matching, so badge URLs and code blocks never
+false-positive. CHANGELOG files are excluded (stale phrases live there as legitimate
+history). Profile checks (install badge, required section markers) are REPO-LEVEL: they
+consider all scanned docs together, and the install badge must be a My Home Assistant
+redirect link whose slug is on the known-good list — a code-fenced, commented-out, or
+dead-slug badge does not count. Fails closed on missing explicit paths and on a repo/dir
+scan that turns up zero docs. Output uses the shared BLOCK/FIX/SPEC/OFFENDING format.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -20,11 +25,15 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 
-FENCE = re.compile(r"^\s*(```|~~~)")
+# Fence opener: up to 3 spaces of indent (4+ is an indented code block, not a fence),
+# then a run of >=3 backticks or tildes. Capture the marker char so ``` cannot close ~~~.
+FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 INLINE_CODE = re.compile(r"`[^`]*`")
-LINK_TARGET = re.compile(r"\]\([^)]*\)")   # ](url) — strip the URL, keep display text
-HTML_COMMENT = re.compile(r"<!--.*?-->")
+LINK_TARGET = re.compile(r"\]\([^)]*\)")  # ](url) — drop the URL, keep display text
+LINK_BRACKETS = re.compile(r"[\[\]]")  # [text] / ![alt] wrappers — keep the text
+HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)  # multi-line aware
 HTML_TAG = re.compile(r"<[^>]+>")
+DEFAULT_PATHS = ["README.md", "docs"]
 
 
 class Finding:
@@ -41,7 +50,7 @@ class Finding:
 def default_rules_path() -> Path:
     for cand in (
         HERE.parent.parent / "specs" / "ha-app-docs-rules.json",  # repo root/specs
-        HERE / "ha-app-docs-rules.json",                          # vendored beside action
+        HERE / "ha-app-docs-rules.json",  # vendored beside action
     ):
         if cand.exists():
             return cand
@@ -52,21 +61,22 @@ def is_changelog(p: Path) -> bool:
     return p.name.upper().startswith("CHANGELOG")
 
 
-def prose_lines(text: str):
-    """Yield (lineno, prose_only_line): skip fenced code; strip inline code,
-    markdown link/image URL targets, HTML comments/tags."""
-    in_fence = False
+def nonfenced_lines(text: str):
+    """Yield (lineno, raw_line) for lines OUTSIDE fenced code blocks. A fence closes
+    only on the same marker character it opened with (``` does not close ~~~)."""
+    fence_char = None
     for i, raw in enumerate(text.splitlines(), 1):
-        if FENCE.match(raw):
-            in_fence = not in_fence
+        m = FENCE.match(raw)
+        if m:
+            marker = m.group(1)[0]
+            if fence_char is None:
+                fence_char = marker
+            elif marker == fence_char:
+                fence_char = None
             continue
-        if in_fence:
+        if fence_char is not None:
             continue
-        line = INLINE_CODE.sub(" ", raw)
-        line = LINK_TARGET.sub("] ", line)
-        line = HTML_COMMENT.sub(" ", line)
-        line = HTML_TAG.sub(" ", line)
-        yield i, line
+        yield i, raw
 
 
 def scan_phrases(path: Path, rules: dict) -> list[Finding]:
@@ -77,49 +87,139 @@ def scan_phrases(path: Path, rules: dict) -> list[Finding]:
         for b in rules["banned_phrases"]
     ]
     out: list[Finding] = []
-    text = path.read_text(encoding="utf-8")
-    for lineno, line in prose_lines(text):
+    # Strip multi-line HTML comments up front so a comment spanning lines can't hide
+    # (or split) a phrase. Section markers are matched separately on raw text.
+    text = HTML_COMMENT.sub(" ", path.read_text(encoding="utf-8"))
+    for lineno, raw in nonfenced_lines(text):
+        line = INLINE_CODE.sub(" ", raw)
+        line = LINK_TARGET.sub("] ", line)  # ](url) -> ] , kills badge URLs
+        line = LINK_BRACKETS.sub(" ", line)  # [Add-ons] -> Add-ons (link-split nav)
+        line = HTML_TAG.sub(" ", line)
         for b, rx in compiled:
             if rx.search(line):
-                out.append(Finding(b["rule_id"], b["message"], b.get("fix_hint", ""),
-                                   b.get("spec_anchor", ""), f"{path}:{lineno}"))
+                out.append(
+                    Finding(
+                        b["rule_id"],
+                        b["message"],
+                        b.get("fix_hint", ""),
+                        b.get("spec_anchor", ""),
+                        f"{path}:{lineno}",
+                    )
+                )
     return out
 
 
-def check_profile(path: Path, rules: dict, profile_name: str) -> list[Finding]:
-    if is_changelog(path):
-        return []
+def redirect_slugs(text: str, badge_rx: re.Pattern) -> set[str]:
+    """Return My Home Assistant redirect slugs that appear in real (rendered) content:
+    outside fenced code and outside inline-code spans. A badge hidden in a code block or
+    backticks does not count."""
+    slugs: set[str] = set()
+    text = HTML_COMMENT.sub(" ", text)
+    for _lineno, raw in nonfenced_lines(text):
+        line = INLINE_CODE.sub(" ", raw)  # keep URLs, drop inline-code samples
+        for m in badge_rx.finditer(line):
+            slugs.add(m.group(1).lower())
+    return slugs
+
+
+def check_profile_repo(
+    files: list[Path], rules: dict, profile_name: str
+) -> list[Finding]:
     prof = rules["profiles"].get(profile_name)
     if prof is None:
-        return [Finding("UNKNOWN_PROFILE", f"unknown profile {profile_name!r}",
-                        "use one of: " + ", ".join(rules["profiles"]), "profiles", str(path))]
+        return [
+            Finding(
+                "UNKNOWN_PROFILE",
+                f"unknown profile {profile_name!r}",
+                "use one of: " + ", ".join(rules["profiles"]),
+                "profiles",
+                "(config)",
+            )
+        ]
     out: list[Finding] = []
-    raw = path.read_text(encoding="utf-8")
+    texts = {f: f.read_text(encoding="utf-8") for f in files}
+
     if prof.get("requires_install_badge"):
         ib = rules["install_badge"]
-        if not re.search(ib["pattern"], raw):
-            out.append(Finding(ib["rule_id"], ib["message"], ib.get("fix_hint", ""),
-                               ib.get("spec_anchor", ""), str(path)))
+        badge_rx = re.compile(ib["pattern"], re.I)
+        known = {
+            s.lower() for s in rules.get("redirect_slugs", {}).get("known_good", [])
+        }
+        found: set[str] = set()
+        for t in texts.values():
+            found |= redirect_slugs(t, badge_rx)
+        if not (found & known):
+            msg = ib["message"]
+            if found:
+                msg += (
+                    f" (found redirect slug(s) {sorted(found)} but none are "
+                    f"known-good: {sorted(known)})"
+                )
+            out.append(
+                Finding(
+                    ib["rule_id"],
+                    msg,
+                    ib.get("fix_hint", ""),
+                    ib.get("spec_anchor", ""),
+                    "(install docs)",
+                )
+            )
+
     for marker in prof.get("required_markers", []):
-        if f"<!-- {marker} -->" not in raw and f"<!--{marker}-->" not in raw:
-            out.append(Finding("SECTION_MARKER",
-                               f"missing required section marker <!-- {marker} --> "
-                               f"for profile {profile_name!r}",
-                               f"Add the marker above the relevant section: <!-- {marker} -->",
-                               "profiles", str(path)))
+        present = any(
+            (f"<!-- {marker} -->" in t or f"<!--{marker}-->" in t)
+            for t in texts.values()
+        )
+        if not present:
+            out.append(
+                Finding(
+                    "SECTION_MARKER",
+                    f"missing required section marker <!-- {marker} --> "
+                    f"for profile {profile_name!r}",
+                    f"Add the marker above the relevant section: <!-- {marker} -->",
+                    "profiles",
+                    "(install docs)",
+                )
+            )
     return out
 
 
-def collect(path: Path):
-    """(readmes, all_markdown). A dir scans README+docs; an explicit file is
-    treated as a README (so profile checks apply). Missing paths are skipped."""
-    if not path.exists():
-        return [], []
-    if path.is_dir():
-        all_md = [p for p in sorted(path.rglob("*.md"))]
-        readmes = [p for p in all_md if p.name.lower() == "readme.md"]
-        return readmes, all_md
-    return [path], [path]
+def gather(paths: list[str]):
+    """Return (scanned, missing, excluded, did_repo_scan).
+
+    scanned  = resolved, deduped README/docs markdown files to lint
+    missing  = explicit paths that do not exist (fail closed)
+    excluded = count of existing files skipped as CHANGELOG (a no-op, not an error)
+    did_repo_scan = True if any input was a directory or the default set was used
+    """
+    scanned: list[Path] = []
+    missing: list[str] = []
+    excluded = 0
+    did_repo_scan = paths is DEFAULT_PATHS
+    for raw in paths:
+        p = Path(raw)
+        if p.is_dir():
+            did_repo_scan = True
+            for md in sorted(p.rglob("*.md")):
+                if is_changelog(md):
+                    excluded += 1
+                else:
+                    scanned.append(md)
+        elif p.exists():
+            if is_changelog(p):
+                excluded += 1
+            else:
+                scanned.append(p)
+        else:
+            missing.append(raw)
+    deduped: list[Path] = []
+    seen: set[Path] = set()
+    for p in scanned:
+        rp = p.resolve()
+        if rp not in seen:
+            seen.add(rp)
+            deduped.append(p)
+    return deduped, missing, excluded, did_repo_scan
 
 
 def emit(f: Finding, spec_url: str) -> None:
@@ -133,7 +233,9 @@ def emit(f: Finding, spec_url: str) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="ha-app-docs-lint")
-    ap.add_argument("paths", nargs="*", help="files/dirs to scan (default: README.md docs)")
+    ap.add_argument(
+        "paths", nargs="*", help="files/dirs to scan (default: README.md docs)"
+    )
     ap.add_argument("--profile", default="addon", help="repo-type profile")
     ap.add_argument("--rules", default=None, help="path to ha-app-docs-rules.json")
     args = ap.parse_args()
@@ -142,18 +244,43 @@ def main() -> None:
     rules = json.loads(rules_path.read_text(encoding="utf-8"))
     spec_url = rules.get("spec_url", "")
 
-    paths = args.paths or ["README.md", "docs"]
-    readmes, all_md = [], []
-    for raw in paths:
-        r, a = collect(Path(raw))
-        readmes += r
-        all_md += a
+    paths = args.paths if args.paths else DEFAULT_PATHS
+    scanned, missing, excluded, did_repo_scan = gather(paths)
 
     findings: list[Finding] = []
-    for p in dict.fromkeys(all_md):
+    for raw in missing:
+        findings.append(
+            Finding(
+                "MISSING_PATH",
+                f"path not found: {raw}",
+                "check the `paths` input; a public standard fails closed on typos",
+                "scope",
+                raw,
+            )
+        )
+    # Fail closed: a repo/dir/default scan that found no lintable docs is an error, not a
+    # silent pass. An explicit CHANGELOG-only invocation (excluded>0) is a no-op, not a fail.
+    if not scanned and not missing and excluded == 0 and did_repo_scan:
+        findings.append(
+            Finding(
+                "NO_DOCS",
+                "no install docs found to scan (README.md / docs/*.md)",
+                "point --paths at the README/docs, or add a README",
+                "scope",
+                "(scope)",
+            )
+        )
+
+    for p in scanned:
         findings += scan_phrases(p, rules)
-    for p in dict.fromkeys(readmes):
-        findings += check_profile(p, rules, args.profile)
+    if scanned:
+        findings += check_profile_repo(scanned, rules, args.profile)
+
+    print(
+        f"ha-app-docs-lint: scanned {len(scanned)} file(s), "
+        f"{len(missing)} missing, {excluded} changelog(s) skipped",
+        file=sys.stderr,
+    )
 
     if findings:
         for f in findings:

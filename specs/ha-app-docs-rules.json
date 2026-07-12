@@ -21,7 +21,7 @@
     },
     {
       "rule_id": "SETTINGS_ADDONS",
-      "pattern": "settings\\s*(?:>|→|/|»)\\s*add-?ons?\\b",
+      "pattern": "settings\\s*(?:>|→|->|/|»|›|&gt;)\\s*add-?ons?\\b",
       "flags": "i",
       "severity": "block",
       "message": "Stale nav path 'Settings > Add-ons' — Home Assistant renamed it to 'Settings > Apps'.",
@@ -40,9 +40,10 @@
   ],
   "install_badge": {
     "rule_id": "INSTALL_BADGE_REQUIRED",
-    "pattern": "my\\.home-assistant\\.io/redirect/",
+    "pattern": "https?://my\\.home-assistant\\.io/redirect/([a-z0-9_]+)",
+    "pattern_note": "Host-anchored, with a capture group for the slug. The linter accepts the badge only when the captured slug is in redirect_slugs.known_good and the link is not inside code — a code-fenced, commented-out, or dead-slug badge does not satisfy the rule.",
     "severity": "block",
-    "message": "Install docs must include a My Home Assistant redirect badge/link. Redirect links are drift-proof: Home Assistant keeps them pointing at the right page across UI renames.",
+    "message": "Install docs must include a My Home Assistant redirect badge/link with a known-good slug. Redirect links are drift-proof: Home Assistant keeps them pointing at the right page across UI renames.",
     "fix_hint": "Add a redirect badge, e.g. https://my.home-assistant.io/redirect/supervisor_store/ . See redirect_slugs for valid slugs.",
     "spec_anchor": "redirect-badge"
   },

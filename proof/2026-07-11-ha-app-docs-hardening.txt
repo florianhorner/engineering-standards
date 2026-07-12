@@ -1,0 +1,25 @@
+ha-app-docs-lint hardening runtime proof
+generated: 2026-07-12T20:59:23Z
+commit: 5bd1a4b00f18dd39a2142008ba67be27d1041697
+
+### corpus (run_corpus.py) ###
+PASS  specs/ha-app-docs-test-corpus/pass/CHANGELOG-historical.md
+PASS  specs/ha-app-docs-test-corpus/pass/badge-url.md
+PASS  specs/ha-app-docs-test-corpus/pass/clean-addon.md
+PASS  specs/ha-app-docs-test-corpus/pass/code-fence.md
+PASS  specs/ha-app-docs-test-corpus/pass/hacs-ok.md
+PASS  specs/ha-app-docs-test-corpus/pass/supervisor-word.md
+PASS  specs/ha-app-docs-test-corpus/fail/arrow-nav.md (failed as expected: SETTINGS_ADDONS)
+PASS  specs/ha-app-docs-test-corpus/fail/badge-dead-slug.md (failed as expected: INSTALL_BADGE_REQUIRED)
+PASS  specs/ha-app-docs-test-corpus/fail/badge-in-fence-only.md (failed as expected: INSTALL_BADGE_REQUIRED)
+PASS  specs/ha-app-docs-test-corpus/fail/hacs-missing-marker.md (failed as expected: SECTION_MARKER)
+PASS  specs/ha-app-docs-test-corpus/fail/hass-io.md (failed as expected: HASS_IO)
+PASS  specs/ha-app-docs-test-corpus/fail/link-split-nav.md (failed as expected: SETTINGS_ADDONS)
+PASS  specs/ha-app-docs-test-corpus/fail/no-badge.md (failed as expected: INSTALL_BADGE_REQUIRED)
+PASS  specs/ha-app-docs-test-corpus/fail/stale-nav.md (failed as expected: ADDON_STORE, SETTINGS_ADDONS)
+
+ha-app-docs corpus: 14 cases, 0 mismatches
+ALL GREEN
+
+### conformance (conformance_test.py) ###
+conformance OK (rules valid, template passes, fail-closed guarantees hold)

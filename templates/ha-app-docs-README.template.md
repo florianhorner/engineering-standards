@@ -6,7 +6,7 @@
 
 # Your App Name
 
-[![Add repository to your Home Assistant](https://my.home-assistant.io/badges/supervisor_store.svg)](https://my.home-assistant.io/redirect/supervisor_store/)
+[![Open your Home Assistant App store](https://my.home-assistant.io/badges/supervisor_store.svg)](https://my.home-assistant.io/redirect/supervisor_store/)
 
 <!-- contract:what-is-this -->
 ## What this is
@@ -21,12 +21,11 @@ The specific user this helps, in one line.
 <!-- contract:install-manually -->
 ## Install
 
-1. Click the badge above to add this repository to your Home Assistant instance.
-2. Open the App store, find this app, and install it.
-
-If the badge does not add the repository (a known Home Assistant redirect regression),
-add it by hand: open **Settings > Apps**, open the store, then the three-dot menu >
-**Repositories**, and paste this repo's URL.
+1. Click the badge above to open the App store on your Home Assistant instance. The
+   `supervisor_store` redirect opens the store; it does not add this repository (Home
+   Assistant's add-repository redirect is currently broken, so the next step is by hand).
+2. Add this repository: in the App store, open the three-dot menu > **Repositories**,
+   paste this repo's URL, then find this app in the store and install it.
 
 <!-- contract:screenshots -->
 ## What it looks like

@@ -13,13 +13,15 @@ Home Assistant renames its UI roughly every 6 months (Add-ons became Apps; "Inst
 
 ## What it checks
 
-1. **Install badge required** (`INSTALL_BADGE_REQUIRED`) — install docs must contain at least one `my.home-assistant.io/redirect/` link. The `addon` profile requires it; HACS profiles do not.
+1. **Install badge required** (`INSTALL_BADGE_REQUIRED`) — the install docs must contain a `my.home-assistant.io/redirect/<slug>` link whose slug is **known-good** (see the table below). A badge inside a code block or backticks, a commented-out badge, or one pointing at an unknown/dead slug does **not** count. The `addon` profile requires it; HACS profiles do not. This check is **repo-level**: the README and `docs/` are considered together.
 2. **Banned stale phrases** (`ADDON_STORE`, `SETTINGS_ADDONS`, `HASS_IO`) — literal wording Home Assistant has renamed. Only exact multi-word nav phrases are banned; bare words like "Supervisor" and "add-on" are **not** flagged (they carry non-nav meanings and were measured at ~100% false-positive as bare words).
 3. **Repo-type profile markers** (`SECTION_MARKER`) — HACS profiles must carry a `<!-- contract:install-hacs -->` marker so the HACS install step is documented.
 
 ## Markdown-aware matching
 
-The linter matches **rendered prose, not raw markdown source**. Before matching it skips fenced/inline code and strips markdown link/image URL targets (`](...)`). So a badge whose URL contains `supervisor_store`, or a stale phrase quoted inside a ```code fence```, never false-positives. Measured on 11 real repos: naive substring matching = ~45% false-positive; markdown-aware = ~0%. `CHANGELOG*` files are excluded entirely — stale phrases live there as legitimate history.
+The linter matches **rendered prose, not raw markdown source**. Before matching it skips fenced/inline code and strips markdown link/image URL targets (`](...)`). So a badge whose URL contains `supervisor_store`, or a stale phrase quoted inside a ```code fence```, never false-positives. Measured on 11 real repos: naive substring matching = ~45% false-positive; markdown-aware = ~0%. `CHANGELOG*` files are excluded entirely — stale phrases live there as legitimate history. It also strips markdown link *brackets*, so a nav path split across a link (`Settings > [Add-ons](...)`) is still caught, and it tracks fence type so a backtick fence cannot be closed by a tilde fence. The linter **fails closed**: an explicit path that does not exist (`MISSING_PATH`), or a repo scan that finds no README/docs (`NO_DOCS`), is an error, not a silent pass.
+
+**Recall is not complete.** This is precision-first. The denylist catches known-stale wording, not every paraphrase, localized string, cross-line wrap, or a phrase whose key word sits inside inline code. The real drift protection is the positive badge rule; the denylist is a backstop.
 
 ## Redirect badge
 

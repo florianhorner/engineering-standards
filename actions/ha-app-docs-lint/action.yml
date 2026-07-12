@@ -25,8 +25,17 @@ runs:
         python-version: "3.12"
     - name: Run ha-app-docs-lint
       shell: bash
-      run: >
-        python3 "${GITHUB_ACTION_PATH}/ha_app_docs_lint.py"
-        --profile "${{ inputs.profile }}"
-        --rules "${GITHUB_ACTION_PATH}/../../specs/ha-app-docs-rules.json"
-        ${{ inputs.paths }}
+      # Inputs are passed through env, never interpolated into the command line, so a
+      # caller wiring `paths`/`profile` from workflow input, matrix data, or PR metadata
+      # cannot inject shell. `paths` is word-split into an argv array (space-separated per
+      # the input contract); paths containing spaces are not supported.
+      env:
+        HADOCS_PROFILE: ${{ inputs.profile }}
+        HADOCS_PATHS: ${{ inputs.paths }}
+      run: |
+        set -euo pipefail
+        read -ra _paths <<< "$HADOCS_PATHS"
+        python3 "${GITHUB_ACTION_PATH}/ha_app_docs_lint.py" \
+          --profile "$HADOCS_PROFILE" \
+          --rules "${GITHUB_ACTION_PATH}/../../specs/ha-app-docs-rules.json" \
+          "${_paths[@]}"
