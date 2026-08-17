@@ -165,10 +165,38 @@ jobs:
           # a script-injection vector. See GitHub's "Understanding the risk of
           # script injections" guidance.
           PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
           RANGE_SHAS: ${{ steps.range.outputs.shas }}
         run: |
           set -uo pipefail
           mkdir -p .ci-tmp/messages .ci-tmp/results
+
+          # Bot allowlist, read from the consumer's vendored rules instead of
+          # hardcoded here. Before this, `exemptions.trusted_bot_skips` was
+          # decorative: the workflow only ever skipped WHY_REQUIRED, so editing
+          # that array in commit-rules.json changed nothing.
+          RULES_FILE=".config/commit-rules.json"
+          TRUSTED_BOTS="$(python3 -c 'import json,sys; print("\n".join(json.load(open(sys.argv[1]))["exemptions"]["trusted_bots"]))' "$RULES_FILE")"
+          BOT_SKIPS="$(python3 -c 'import json,sys; print("\n".join(json.load(open(sys.argv[1]))["exemptions"]["trusted_bot_skips"]))' "$RULES_FILE")"
+
+          is_trusted_bot() {
+            [ -n "${1:-}" ] && printf '%s\n' "$TRUSTED_BOTS" | grep -qxF -- "$1"
+          }
+
+          # True when the author is a trusted bot AND every rule the hook blocked
+          # on is in the skip list. A single non-skippable violation still fails,
+          # so a bot cannot smuggle a banned subject through on a technicality.
+          all_blocks_skippable() {
+            local result_file="$1"
+            local ids
+            ids="$(grep -E '^BLOCK: ' "$result_file" | awk '{print $2}')"
+            [ -n "$ids" ] || return 1
+            while IFS= read -r id; do
+              [ -z "$id" ] && continue
+              printf '%s\n' "$BOT_SKIPS" | grep -qxF -- "$id" || return 1
+            done <<< "$ids"
+            return 0
+          }
 
           SHAS="$RANGE_SHAS"
           if [ -z "${SHAS//[[:space:]]/}" ]; then
@@ -192,14 +220,22 @@ jobs:
             printf '%s\n' "$PR_TITLE" > "$PR_MSG_FILE"
             PR_RESULT_FILE=".ci-tmp/results/__pr_title__.err"
             if ! timeout 30s .ci-tmp/commit-msg-hook "$PR_MSG_FILE" 2> "$PR_RESULT_FILE"; then
-              FAIL_COUNT=$((FAIL_COUNT + 1))
-              SUBJECT_TRUNC="${PR_TITLE:0:60}"
-              # Extract first BLOCK line for the table.
-              RULE_ID="$(grep -E '^BLOCK: ' "$PR_RESULT_FILE" | head -n1 | awk '{print $2}')"
-              FIX_HINT="$(grep -E '^FIX: ' "$PR_RESULT_FILE" | head -n1 | sed 's/^FIX: //')"
-              printf '| PR title | `%s` | `%s` | %s |\n' \
-                "${SUBJECT_TRUNC//|/\\|}" "${RULE_ID:-UNKNOWN}" "${FIX_HINT//|/\\|}" \
-                >> "$FAIL_TABLE_FILE"
+              # The commit loop below has always honored the bot allowlist; this
+              # check never did. A grouped Dependabot title ("...in the core group
+              # across 1 directory") runs past the 72-char subject limit every
+              # time, so every grouped bot PR failed here regardless of author.
+              if is_trusted_bot "$PR_AUTHOR" && all_blocks_skippable "$PR_RESULT_FILE"; then
+                echo "PR title: all violations skippable for trusted bot $PR_AUTHOR — passing."
+              else
+                FAIL_COUNT=$((FAIL_COUNT + 1))
+                SUBJECT_TRUNC="${PR_TITLE:0:60}"
+                # Extract first BLOCK line for the table.
+                RULE_ID="$(grep -E '^BLOCK: ' "$PR_RESULT_FILE" | head -n1 | awk '{print $2}')"
+                FIX_HINT="$(grep -E '^FIX: ' "$PR_RESULT_FILE" | head -n1 | sed 's/^FIX: //')"
+                printf '| PR title | `%s` | `%s` | %s |\n' \
+                  "${SUBJECT_TRUNC//|/\\|}" "${RULE_ID:-UNKNOWN}" "${FIX_HINT//|/\\|}" \
+                  >> "$FAIL_TABLE_FILE"
+              fi
             fi
           fi
 
@@ -210,23 +246,17 @@ jobs:
             git log -1 --format=%B "$SHA" > "$MSG_FILE"
             SUBJECT="$(head -n1 "$MSG_FILE")"
 
-            # Bot allowlist: skip WHY_REQUIRED for trusted bots. The hook
-            # itself does not know about authors; we honor the allowlist
-            # here in CI by checking author name. Other rules still apply.
+            # Bot allowlist. The hook itself does not know about authors, so CI
+            # honors the allowlist by checking the author name against
+            # exemptions.trusted_bots. Rules outside trusted_bot_skips still apply.
             AUTHOR_NAME="$(git log -1 --format=%an "$SHA")"
-            BOT_SKIP=0
-            case "$AUTHOR_NAME" in
-              "renovate[bot]"|"dependabot[bot]"|"pre-commit-ci[bot]"|"app/github-actions")
-                BOT_SKIP=1
-                ;;
-            esac
 
             if ! timeout 30s .ci-tmp/commit-msg-hook "$MSG_FILE" 2> "$RESULT_FILE"; then
-              # Check if the only failure is WHY_REQUIRED and the author is a
-              # trusted bot — if so, treat as pass.
-              if [ "$BOT_SKIP" = "1" ] \
-                && grep -qE '^BLOCK: WHY_REQUIRED ' "$RESULT_FILE" \
-                && [ "$(grep -cE '^BLOCK: ' "$RESULT_FILE")" = "1" ]; then
+              # Pass when the author is a trusted bot and every rule it tripped is
+              # listed in trusted_bot_skips. Previously this was hardcoded to a
+              # lone WHY_REQUIRED, which meant the skip list could not be extended
+              # and a bot tripping two skippable rules still failed.
+              if is_trusted_bot "$AUTHOR_NAME" && all_blocks_skippable "$RESULT_FILE"; then
                 continue
               fi
               FAIL_COUNT=$((FAIL_COUNT + 1))

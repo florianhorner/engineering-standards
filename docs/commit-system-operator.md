@@ -132,6 +132,10 @@ These are exempted by subject prefix (`Revert `, `Merge `, `cherry-pick: `). No 
 
 To add a new trusted bot: edit `commit-rules.json` `exemptions.trusted_bots` array, bump schema version, push to engineering-standards. Consumers will pick it up on next SHA-pin update.
 
+To change which rules a trusted bot may trip: edit `exemptions.trusted_bot_skips`. CI reads that array directly, so a rule_id added there takes effect on the next SHA-pin update — no workflow edit. The allowlist applies to the PR title and to each commit in range. A bot still fails if it trips even one rule outside the array, so widening the list never opens a general bypass.
+
+`SUBJECT_TOO_LONG` is in the list because Dependabot's grouped-update titles ("…in the core group across 1 directory") exceed 72 characters by construction and cannot be configured shorter.
+
 ---
 
 ## Troubleshooting matrix
