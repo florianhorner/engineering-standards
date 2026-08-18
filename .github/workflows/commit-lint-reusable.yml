@@ -53,7 +53,7 @@ jobs:
     steps:
       # 1. Checkout the consumer repo with full history — needed for git merge-base.
       - name: Checkout consumer repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -63,7 +63,7 @@ jobs:
       #    .config/commit-rules.json — engineering-standards is only fetched here
       #    for the validator code, not the rules.
       - name: Checkout engineering-standards (validator code)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ${{ env.ENGSTD_REPO }}
           ref: ${{ env.ENGSTD_REF }}
