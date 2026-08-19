@@ -1,43 +1,60 @@
-# Dependabot config fragment. bootstrap-repo.sh patches these entries into
-# .github/dependabot.yml so Dependabot's commits pass the conventional-commits
-# check (Dependabot's default subject "Bump foo from 1 to 2" fails the format
-# rule per Eng E8). The `commit-message.prefix: "chore"` line is the
-# load-bearing part — everything else is sensible defaults.
+# REFERENCE ONLY — bootstrap-repo.sh no longer copies this file verbatim.
+#
+# Step 4 generates .github/dependabot.yml from the manifests a repo actually
+# tracks (`git ls-files`), because a fixed snippet in which every block said
+# `directory: "/"` silently skipped every package tree outside root — issue #1.
+# This file shows the shape of that generated output for a repo with a root and
+# a server/ npm tree, a Dockerfile under ha-addon/, and a composite action.
+#
+# Rules the generator follows:
+#   - one block per ecosystem, listing directories explicitly. Two blocks for
+#     the same ecosystem must not overlap, and globbing in `directories` is
+#     documented but broken (dependabot/dependabot-core#12348).
+#   - `commit-message.prefix: "chore"` on every block. This is the load-bearing
+#     part: Dependabot's default subject "Bump foo from 1 to 2" fails the format
+#     rule per Eng E8.
+#   - a `groups` entry once a block covers more than one directory, since
+#     open-pull-requests-limit is not reliably enforced across directories
+#     (dependabot/dependabot-core#10395).
 #
 # Spec reference: https://github.com/florianhorner/engineering-standards/blob/main/specs/commit-message-spec.md#bot-allowlist
 version: 2
 updates:
-  - package-ecosystem: "npm"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
-    commit-message:
-      prefix: "chore"
-      prefix-development: "chore"
-      include: "scope"
-
-  - package-ecosystem: "pip"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
-    commit-message:
-      prefix: "chore"
-      prefix-development: "chore"
-      include: "scope"
-
   - package-ecosystem: "github-actions"
-    directory: "/"
+    directories:
+      - "/"
+      - "/actions/ha-app-docs-lint"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
     commit-message:
       prefix: "chore"
       include: "scope"
+    groups:
+      github-actions-all:
+        applies-to: version-updates
+        patterns:
+          - "*"
+
+  - package-ecosystem: "npm"
+    directories:
+      - "/"
+      - "/server"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore"
+      prefix-development: "chore"
+      include: "scope"
+    groups:
+      npm-all:
+        applies-to: version-updates
+        patterns:
+          - "*"
 
   - package-ecosystem: "docker"
-    directory: "/"
+    directory: "/ha-addon/mammamiradio"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5

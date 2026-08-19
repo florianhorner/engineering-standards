@@ -57,7 +57,7 @@ The bootstrap script (Phase 4 deliverable) is self-verifying. It:
 1. Vendors `commit-rules.json` from a SHA-pinned source into `.config/commit-rules.json`
 2. Drops `.commitlintrc.json`
 3. Drops `.github/workflows/commit-lint.yml` (5-line `uses:` includer)
-4. Patches `.github/dependabot.yml` with `commit-message.prefix: "chore"`
+4. Generates `.github/dependabot.yml` with `commit-message.prefix: "chore"` — one block per ecosystem, listing every directory that holds a tracked manifest (`server/package.json`, `src-tauri/Cargo.toml`, a composite action's own `action.yml`), not just `/`
 5. Drops `CONTRIBUTING.md` snippet (cheat sheet for Codex web / human contributors)
 6. Appends commit-standards section to `CLAUDE.md`
 7. Generates `.git/hooks/commit-msg` from the validator binary

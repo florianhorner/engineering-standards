@@ -11,7 +11,7 @@ Drop-in files that `bootstrap-repo.sh` (Phase 4 deliverable) copies or appends i
 | `AUTHOR-NOTES.md` | Copied as `AUTHOR-NOTES.md` at repo root, **only on Tier 1A fork branches** (e.g. `lightener-curve-editor`, `govee2mqtt-extended`) | Step 5b — fork-branch-only copy |
 | `.commitlintrc.json` | Copied as `.commitlintrc.json` at repo root | Step 2 — drop commitlint config |
 | `per-repo-commit-lint.yml` | Copied as `.github/workflows/commit-lint.yml` (5-line includer; bootstrap script resolves `@v1` to the actual SHA-pinned ref) | Step 3 — drop CI includer |
-| `dependabot-snippet.yml` | Patched into `.github/dependabot.yml` (created or merged) | Step 4 — patch dependabot config |
+| `dependabot-snippet.yml` | Nothing — reference only. Step 4 **generates** `.github/dependabot.yml` from the manifests the target repo tracks (`git ls-files`), one block per ecosystem with every directory listed | Step 4 — generate dependabot config |
 
 ## Idempotency
 
