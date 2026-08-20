@@ -11,6 +11,10 @@ Florian's public engineering standards. Single source of truth for commit messag
 - **[validator/](validator/)** — Python hook generator (`generate-hook.py`) that emits the `commit-msg` hook from `specs/commit-rules.json`.
 - **[templates/](templates/)** — Drop-in files the bootstrap script copies into consumer repos.
 
+### Cloud agent environments
+
+- **[cloud/install-gstack.sh](cloud/install-gstack.sh)** — Installs [gstack](https://github.com/garrytan/gstack) on a headless cloud box so its `/gstack-*` skills exist for the claude, codex, and cursor hosts. Meant for Conductor's Cloud Computer "Install software" script, which is the only hook that reaches cloud workspaces — `~/.claude` never syncs from the Mac, files-to-copy is Mac-only, and `scripts.setup` in `.conductor/settings.toml` does not run in cloud. Idempotent, so it doubles as a repair/update inside a live workspace.
+
 ### HA app docs standard
 
 - **[specs/ha-app-docs-contract.md](specs/ha-app-docs-contract.md)** — Drift-proof install-docs standard for Home Assistant app/add-on repos: require My Home Assistant redirect badges, ban stale nav wording (`Add-on Store`, `Settings > Add-ons`, `Hass.io`).
