@@ -73,8 +73,15 @@ class WorkflowSecurityContractTest(unittest.TestCase):
                     r"^[0-9a-f]{40}$",
                     f"{path}: action ref is not a full SHA: {target}",
                 )
-                self.assertIn(action, expected_actions, f"{path}: unexpected action")
-                self.assertEqual(ref, expected_actions[action], f"{path}: wrong action pin")
+                if action.startswith("actions/"):
+                    self.assertIn(action, expected_actions, f"{path}: unexpected action")
+                    self.assertEqual(ref, expected_actions[action], f"{path}: wrong action pin")
+                else:
+                    self.assertEqual(
+                        action,
+                        "florianhorner/engineering-standards/.github/workflows/commit-lint-reusable.yml",
+                        f"{path}: unexpected reusable workflow",
+                    )
 
     def test_validation_job_is_read_only_and_uses_trusted_toolchain(self) -> None:
         validate = job_block(self.workflow, "validate")
@@ -111,6 +118,24 @@ class WorkflowSecurityContractTest(unittest.TestCase):
         self.assertNotIn("pull-requests: write", self.workflow)
         self.assertNotRegex(self.workflow, r"(?m)^\s*GH_TOKEN:")
         self.assertNotRegex(self.workflow, r"(?m)^\s*gh pr ")
+
+    def test_rollback_fixture_uses_exact_candidate_sha(self) -> None:
+        fixture = job_block(
+            self.corpus_workflow,
+            "immutable-workflow-rollback-fixture",
+        )
+        self.assertIn(
+            "uses: florianhorner/engineering-standards/.github/workflows/"
+            "commit-lint-reusable.yml@9ac64657aba2d79975770dfe9852a4a1a580de8b",
+            fixture,
+        )
+        self.assertIn("contents: read", fixture)
+        self.assertNotRegex(fixture, r"(?m)^\s+[a-z-]+:\s*write\s*$")
+
+    def test_workflow_exports_verified_identity(self) -> None:
+        for name in ("workflow_repository", "workflow_ref", "workflow_sha"):
+            self.assertIn(f"{name}: ${{{{ steps.identity.outputs.{name} }}}}", self.workflow)
+            self.assertIn(f'echo "{name}=$EXPECTED_WORKFLOW_', self.workflow)
 
     def test_commitlint_install_is_locked(self) -> None:
         package = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))

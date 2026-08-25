@@ -8,6 +8,16 @@ name: commit-lint-reusable
 
 on:
   workflow_call:
+    outputs:
+      workflow_repository:
+        description: Exact repository that supplied this reusable workflow
+        value: ${{ jobs.validate.outputs.workflow_repository }}
+      workflow_ref:
+        description: Exact repository, workflow path, and revision
+        value: ${{ jobs.validate.outputs.workflow_ref }}
+      workflow_sha:
+        description: Exact revision that supplied this reusable workflow
+        value: ${{ jobs.validate.outputs.workflow_sha }}
 
 permissions: {}
 
@@ -18,6 +28,10 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
+    outputs:
+      workflow_repository: ${{ steps.identity.outputs.workflow_repository }}
+      workflow_ref: ${{ steps.identity.outputs.workflow_ref }}
+      workflow_sha: ${{ steps.identity.outputs.workflow_sha }}
     env:
       LC_ALL: C.UTF-8
     steps:
@@ -39,6 +53,7 @@ jobs:
           persist-credentials: false
 
       - name: Verify immutable workflow identity
+        id: identity
         env:
           EXPECTED_WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}
           EXPECTED_WORKFLOW_REF: ${{ job.workflow_ref }}
@@ -82,6 +97,11 @@ jobs:
             exit 2
           fi
 
+          {
+            echo "workflow_repository=$EXPECTED_WORKFLOW_REPOSITORY"
+            echo "workflow_ref=$EXPECTED_WORKFLOW_REF"
+            echo "workflow_sha=$EXPECTED_WORKFLOW_SHA"
+          } >> "$GITHUB_OUTPUT"
           {
             echo "## Immutable workflow identity"
             echo ""

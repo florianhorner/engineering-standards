@@ -185,3 +185,9 @@ jobs:
         run: |
           echo "::error::test-corpus produced ${{ steps.corpus.outputs.mismatches }} mismatch(es). See job summary."
           exit 1
+
+  immutable-workflow-rollback-fixture:
+    name: exact-SHA rollback workflow fixture
+    permissions:
+      contents: read
+    uses: florianhorner/engineering-standards/.github/workflows/commit-lint-reusable.yml@9ac64657aba2d79975770dfe9852a4a1a580de8b
