@@ -1,0 +1,8 @@
+{
+  "name": "engineering-standards-workflow-toolchain",
+  "private": true,
+  "devDependencies": {
+    "@commitlint/cli": "19.5.0",
+    "@commitlint/config-conventional": "19.5.0"
+  }
+}

@@ -34,10 +34,12 @@ jobs:
       LC_ALL: C.UTF-8
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
 
       - name: Setup Python 3
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: '3.x'
 
@@ -48,6 +50,9 @@ jobs:
           python3 validator/generate-hook.py > .ci-tmp/commit-msg-hook
           chmod +x .ci-tmp/commit-msg-hook
           echo "Generated $(wc -l < .ci-tmp/commit-msg-hook) lines."
+
+      - name: Run validator unit tests
+        run: python3 -m unittest discover -s validator -p 'test_*.py'
 
       - name: Run validator against test corpus
         id: corpus

@@ -25,4 +25,13 @@ updates:
         applies-to: version-updates
         patterns:
           - "*"
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore"
+      prefix-development: "chore"
+      include: "scope"
 # END: commit-message-standards
