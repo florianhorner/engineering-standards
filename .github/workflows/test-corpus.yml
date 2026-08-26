@@ -190,13 +190,13 @@ jobs:
     name: exact-SHA rollback workflow fixture
     permissions:
       contents: read
-    uses: florianhorner/engineering-standards/.github/workflows/commit-lint-reusable.yml@ee8736eb1ce2a0a2f22ae73de225c11f377c0b8d
+    uses: florianhorner/engineering-standards/.github/workflows/commit-lint-reusable.yml@18282d55b7d945ad3d49941b784e9a3886a5a678
 
   immutable_workflow_primary_fixture:
     name: exact-SHA primary workflow fixture
     permissions:
       contents: read
-    uses: florianhorner/engineering-standards/.github/workflows/commit-lint-reusable.yml@0b5b2d1eaacc8269633c96280ad2dde2de86cc8f
+    uses: florianhorner/engineering-standards/.github/workflows/commit-lint-reusable.yml@1767592a5b49d7a1324e2fb2133349b0045c3f2d
 
   verify_immutable_workflow_fixtures:
     name: verify immutable workflow identities
@@ -219,5 +219,5 @@ jobs:
           test "$ROLLBACK_RESULT" = "success"
           test "$PRIMARY_RESULT" = "success"
           test "$PRIMARY_REPOSITORY" = "florianhorner/engineering-standards"
-          test "$PRIMARY_REF" = "florianhorner/engineering-standards/.github/workflows/commit-lint-reusable.yml@0b5b2d1eaacc8269633c96280ad2dde2de86cc8f"
-          test "$PRIMARY_SHA" = "0b5b2d1eaacc8269633c96280ad2dde2de86cc8f"
+          test "$PRIMARY_REF" = "florianhorner/engineering-standards/.github/workflows/commit-lint-reusable.yml@1767592a5b49d7a1324e2fb2133349b0045c3f2d"
+          test "$PRIMARY_SHA" = "1767592a5b49d7a1324e2fb2133349b0045c3f2d"
