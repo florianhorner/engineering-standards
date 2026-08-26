@@ -61,41 +61,14 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [ -z "$EXPECTED_WORKFLOW_REPOSITORY" ] \
-            || [ -z "$EXPECTED_WORKFLOW_REF" ] \
-            || [ -z "$EXPECTED_WORKFLOW_SHA" ]; then
-            echo "::error::Reusable-workflow identity context is empty."
-            exit 2
-          fi
-          if ! printf '%s\n' "$EXPECTED_WORKFLOW_REPOSITORY" | grep -Eq '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'; then
-            echo "::error::Invalid reusable-workflow repository identity."
-            exit 2
-          fi
-          if ! printf '%s\n' "$EXPECTED_WORKFLOW_SHA" | grep -Eq '^[0-9a-f]{40}$'; then
-            echo "::error::Reusable-workflow SHA is not an immutable 40-hex revision."
-            exit 2
-          fi
-
-          REQUIRED_WORKFLOW_REF="${EXPECTED_WORKFLOW_REPOSITORY}/.github/workflows/commit-lint-reusable.yml@${EXPECTED_WORKFLOW_SHA}"
-          if [ "$EXPECTED_WORKFLOW_REF" != "$REQUIRED_WORKFLOW_REF" ]; then
-            echo "::error::Reusable workflow must be called with its exact 40-hex SHA."
-            exit 2
-          fi
-
           ACTUAL_SHA="$(git -C trusted rev-parse HEAD)"
           ACTUAL_ORIGIN="$(git -C trusted remote get-url origin)"
-          ACTUAL_REPOSITORY="${ACTUAL_ORIGIN#https://github.com/}"
-          ACTUAL_REPOSITORY="${ACTUAL_REPOSITORY#git@github.com:}"
-          ACTUAL_REPOSITORY="${ACTUAL_REPOSITORY%.git}"
-
-          if [ "$ACTUAL_REPOSITORY" != "$EXPECTED_WORKFLOW_REPOSITORY" ]; then
-            echo "::error::Reusable-workflow checkout origin mismatch."
-            exit 2
-          fi
-          if [ "$ACTUAL_SHA" != "$EXPECTED_WORKFLOW_SHA" ]; then
-            echo "::error::Reusable-workflow checkout SHA mismatch."
-            exit 2
-          fi
+          python3 -I trusted/validator/verify_workflow_identity.py \
+            "$EXPECTED_WORKFLOW_REPOSITORY" \
+            "$EXPECTED_WORKFLOW_REF" \
+            "$EXPECTED_WORKFLOW_SHA" \
+            "$ACTUAL_ORIGIN" \
+            "$ACTUAL_SHA"
 
           {
             echo "workflow_repository=$EXPECTED_WORKFLOW_REPOSITORY"

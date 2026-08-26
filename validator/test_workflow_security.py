@@ -34,7 +34,10 @@ class WorkflowSecurityContractTest(unittest.TestCase):
         self.assertIn("EXPECTED_WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}", self.workflow)
         self.assertIn("EXPECTED_WORKFLOW_REF: ${{ job.workflow_ref }}", self.workflow)
         self.assertIn("EXPECTED_WORKFLOW_SHA: ${{ job.workflow_sha }}", self.workflow)
-        self.assertIn("commit-lint-reusable.yml@${EXPECTED_WORKFLOW_SHA}", self.workflow)
+        self.assertIn(
+            "python3 -I trusted/validator/verify_workflow_identity.py",
+            self.workflow,
+        )
         self.assertNotIn("ENGSTD_REF", self.workflow)
         self.assertNotRegex(self.workflow, r"(?m)^\s*ref:\s*main\s*$")
         self.assertIn("ImageOS", self.workflow)
