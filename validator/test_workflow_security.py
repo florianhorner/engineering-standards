@@ -126,8 +126,8 @@ class WorkflowSecurityContractTest(unittest.TestCase):
 
     def test_hosted_fixtures_use_exact_candidate_shas(self) -> None:
         expected = {
-            "9ac64657aba2d79975770dfe9852a4a1a580de8b",
             "ee8736eb1ce2a0a2f22ae73de225c11f377c0b8d",
+            "0b5b2d1eaacc8269633c96280ad2dde2de86cc8f",
         }
         actual = set(
             re.findall(
@@ -146,7 +146,7 @@ class WorkflowSecurityContractTest(unittest.TestCase):
         self.assertIn('test "$ROLLBACK_RESULT" = "success"', verifier)
         self.assertIn('test "$PRIMARY_RESULT" = "success"', verifier)
         self.assertIn(
-            'test "$PRIMARY_SHA" = "ee8736eb1ce2a0a2f22ae73de225c11f377c0b8d"',
+            'test "$PRIMARY_SHA" = "0b5b2d1eaacc8269633c96280ad2dde2de86cc8f"',
             verifier,
         )
 
