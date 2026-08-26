@@ -77,7 +77,7 @@ For all other commits the body is optional. Acceptable terse `Why:` templates:
 
 ### Bot allowlist
 
-Commits authored by these identities skip the `WHY_REQUIRED` rule (subject banned-patterns still apply):
+PR titles opened by these verified GitHub logins may skip the rule IDs in `trusted_bot_skips`. Commit messages never trust Git author names for exemptions; their subjects are validated normally.
 
 - `renovate[bot]`
 - `dependabot[bot]` (this repo's `.github/dependabot.yml` sets `commit-message.prefix: "chore"` so the format check passes)
@@ -104,5 +104,5 @@ The pre-push hook logs every `--no-verify` to `~/.commit-bypass.log` with the ov
 ### Where the rules live
 
 - **Canonical spec:** https://github.com/florianhorner/engineering-standards/blob/main/specs/commit-message-spec.md
-- **Vendored copy in this repo:** [`.config/commit-rules.json`](.config/commit-rules.json) — SHA-pinned snapshot consumed by the local hook, the commitlint config, and CI. Do not hand-edit.
+- **Vendored copy in this repo:** [`.config/commit-rules.json`](.config/commit-rules.json) — SHA-pinned snapshot consumed by the local hook and local commit tooling. CI uses the canonical rules at the called workflow's exact SHA and checks this copy only as installation metadata. Do not hand-edit.
 <!-- END: commit-message-standards -->
