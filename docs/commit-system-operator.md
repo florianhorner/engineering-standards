@@ -49,6 +49,8 @@ Consumer repositories call the reusable workflow at an exact 40-character commit
 
 The workflow exposes `workflow_repository`, `workflow_ref`, and `workflow_sha` outputs so hosted fixtures can prove which immutable policy revision ran. A consumer's `.config/commit-rules.json` remains local installation metadata; CI does not execute or import policy from the PR head.
 
+When a change records branch commits as the primary and rollback workflow revisions, land it with a merge commit so both exact SHAs remain reachable from `main`. If the change is squashed or rebased instead, publish new `main`-reachable candidates and rerun the hosted exact-SHA fixtures before repinning any consumer.
+
 ---
 
 ## Bootstrap a new repo
