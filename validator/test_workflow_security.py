@@ -12,6 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 WORKFLOW = ROOT / ".github" / "workflows" / "commit-lint-reusable.yml"
 CORPUS_WORKFLOW = ROOT / ".github" / "workflows" / "test-corpus.yml"
+REPOSITORY_CALLER = ROOT / ".github" / "workflows" / "commit-lint.yml"
 CONSUMER_TEMPLATE = ROOT / "templates" / "per-repo-commit-lint.yml"
 BOOTSTRAP = ROOT / "bootstrap-repo.sh"
 
@@ -134,6 +135,15 @@ class WorkflowSecurityContractTest(unittest.TestCase):
             text = path.read_text(encoding="utf-8")
             self.assertNotIn("pull-requests: write", text, path)
         self.assertIn("permissions:\n  contents: read", CONSUMER_TEMPLATE.read_text())
+
+    def test_repository_caller_uses_read_only_primary_fixture(self) -> None:
+        caller = REPOSITORY_CALLER.read_text(encoding="utf-8")
+        self.assertNotIn("pull-requests: write", caller)
+        self.assertIn(
+            "uses: florianhorner/engineering-standards/.github/workflows/"
+            "commit-lint-reusable.yml@1767592a5b49d7a1324e2fb2133349b0045c3f2d",
+            caller,
+        )
 
     def test_hosted_fixtures_use_exact_candidate_shas(self) -> None:
         expected = {
