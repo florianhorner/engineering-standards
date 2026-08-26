@@ -34,10 +34,12 @@ jobs:
       LC_ALL: C.UTF-8
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
 
       - name: Setup Python 3
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: '3.x'
 
@@ -48,6 +50,9 @@ jobs:
           python3 validator/generate-hook.py > .ci-tmp/commit-msg-hook
           chmod +x .ci-tmp/commit-msg-hook
           echo "Generated $(wc -l < .ci-tmp/commit-msg-hook) lines."
+
+      - name: Run validator unit tests
+        run: python3 -m unittest discover -s validator -p 'test_*.py'
 
       - name: Run validator against test corpus
         id: corpus
@@ -180,3 +185,39 @@ jobs:
         run: |
           echo "::error::test-corpus produced ${{ steps.corpus.outputs.mismatches }} mismatch(es). See job summary."
           exit 1
+
+  immutable_workflow_rollback_fixture:
+    name: exact-SHA rollback workflow fixture
+    permissions:
+      contents: read
+    uses: florianhorner/engineering-standards/.github/workflows/commit-lint-reusable.yml@18282d55b7d945ad3d49941b784e9a3886a5a678
+
+  immutable_workflow_primary_fixture:
+    name: exact-SHA primary workflow fixture
+    permissions:
+      contents: read
+    uses: florianhorner/engineering-standards/.github/workflows/commit-lint-reusable.yml@1767592a5b49d7a1324e2fb2133349b0045c3f2d
+
+  verify_immutable_workflow_fixtures:
+    name: verify immutable workflow identities
+    if: always()
+    needs:
+      - immutable_workflow_rollback_fixture
+      - immutable_workflow_primary_fixture
+    runs-on: ubuntu-latest
+    permissions: {}
+    env:
+      ROLLBACK_RESULT: ${{ needs.immutable_workflow_rollback_fixture.result }}
+      PRIMARY_RESULT: ${{ needs.immutable_workflow_primary_fixture.result }}
+      PRIMARY_REPOSITORY: ${{ needs.immutable_workflow_primary_fixture.outputs.workflow_repository }}
+      PRIMARY_REF: ${{ needs.immutable_workflow_primary_fixture.outputs.workflow_ref }}
+      PRIMARY_SHA: ${{ needs.immutable_workflow_primary_fixture.outputs.workflow_sha }}
+    steps:
+      - name: Assert exact hosted identities
+        run: |
+          set -euo pipefail
+          test "$ROLLBACK_RESULT" = "success"
+          test "$PRIMARY_RESULT" = "success"
+          test "$PRIMARY_REPOSITORY" = "florianhorner/engineering-standards"
+          test "$PRIMARY_REF" = "florianhorner/engineering-standards/.github/workflows/commit-lint-reusable.yml@1767592a5b49d7a1324e2fb2133349b0045c3f2d"
+          test "$PRIMARY_SHA" = "1767592a5b49d7a1324e2fb2133349b0045c3f2d"

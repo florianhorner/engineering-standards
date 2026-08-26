@@ -473,7 +473,6 @@ on:
     branches: [main]
 permissions:
   contents: read
-  pull-requests: write
 jobs:
   commit-lint:
     uses: ${ENGSTD_REPO}/.github/workflows/commit-lint-reusable.yml@${ENGSTD_SHA}
