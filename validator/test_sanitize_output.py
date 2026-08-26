@@ -45,6 +45,18 @@ class SanitizeOutputTest(unittest.TestCase):
         self.assertIn(sanitize_output.TRUNCATED.encode(), rendered)
         self.assertTrue(rendered.startswith(b"commitlint | "))
 
+    def test_empty_input_emits_nothing(self) -> None:
+        self.assertEqual(sanitize_output.sanitize(b""), b"")
+
+    def test_output_cap_preserves_valid_utf8(self) -> None:
+        hostile = (("é" * 200) + "\n").encode("utf-8") * 200
+
+        rendered = sanitize_output.sanitize(hostile)
+
+        self.assertLessEqual(len(rendered), sanitize_output.MAX_OUTPUT_BYTES)
+        rendered.decode("utf-8", errors="strict")
+        self.assertIn(sanitize_output.TRUNCATED.encode(), rendered)
+
     def test_cli_sanitizes_stdin_and_reports_truncation(self) -> None:
         result = subprocess.run(
             [sys.executable, "-I", str(SANITIZER), "-"],
@@ -95,11 +107,13 @@ class SanitizeOutputTest(unittest.TestCase):
             capture_output=True,
             check=False,
         )
-        missing_file = subprocess.run(
-            [sys.executable, "-I", str(SANITIZER), "/definitely/missing/output.log"],
-            capture_output=True,
-            check=False,
-        )
+        with tempfile.TemporaryDirectory() as directory:
+            missing_path = Path(directory) / "missing.log"
+            missing_file = subprocess.run(
+                [sys.executable, "-I", str(SANITIZER), str(missing_path)],
+                capture_output=True,
+                check=False,
+            )
 
         self.assertEqual(missing_argument.returncode, 2)
         self.assertIn(b"usage:", missing_argument.stderr)
