@@ -12,6 +12,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 WORKFLOW = ROOT / ".github" / "workflows" / "commit-lint-reusable.yml"
 CORPUS_WORKFLOW = ROOT / ".github" / "workflows" / "test-corpus.yml"
+CONSUMER_TEMPLATE = ROOT / "templates" / "per-repo-commit-lint.yml"
+BOOTSTRAP = ROOT / "bootstrap-repo.sh"
 
 
 def job_block(text: str, job_name: str) -> str:
@@ -126,6 +128,12 @@ class WorkflowSecurityContractTest(unittest.TestCase):
         self.assertNotIn("pull-requests: write", self.workflow)
         self.assertNotRegex(self.workflow, r"(?m)^\s*GH_TOKEN:")
         self.assertNotRegex(self.workflow, r"(?m)^\s*gh pr ")
+
+    def test_generated_consumers_receive_no_write_permission(self) -> None:
+        for path in (CONSUMER_TEMPLATE, BOOTSTRAP):
+            text = path.read_text(encoding="utf-8")
+            self.assertNotIn("pull-requests: write", text, path)
+        self.assertIn("permissions:\n  contents: read", CONSUMER_TEMPLATE.read_text())
 
     def test_hosted_fixtures_use_exact_candidate_shas(self) -> None:
         expected = {
