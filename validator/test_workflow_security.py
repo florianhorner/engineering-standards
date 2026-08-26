@@ -107,6 +107,11 @@ class WorkflowSecurityContractTest(unittest.TestCase):
         self.assertNotIn("git log -1 --format=%an", validate)
         self.assertIn('mktemp -d "${RUNNER_TEMP}/commit-policy.XXXXXX"', validate)
         self.assertNotIn(".ci-tmp", validate)
+        self.assertIn(
+            "| python3 -I ../trusted/validator/sanitize_output.py -",
+            validate,
+        )
+        self.assertIn('PIPE_STATUSES=("${PIPESTATUS[@]}")', validate)
         self.assertNotRegex(validate, r"\bnpm install\b")
         self.assertNotRegex(validate, r"\bnpx\b")
         self.assertNotIn("commitlint.config.js", validate)
@@ -119,18 +124,31 @@ class WorkflowSecurityContractTest(unittest.TestCase):
         self.assertNotRegex(self.workflow, r"(?m)^\s*GH_TOKEN:")
         self.assertNotRegex(self.workflow, r"(?m)^\s*gh pr ")
 
-    def test_rollback_fixture_uses_exact_candidate_sha(self) -> None:
-        fixture = job_block(
+    def test_hosted_fixtures_use_exact_candidate_shas(self) -> None:
+        expected = {
+            "9ac64657aba2d79975770dfe9852a4a1a580de8b",
+            "e5a12bc2f5e0194cce8df7f3aae356588d3a5f8c",
+        }
+        actual = set(
+            re.findall(
+                r"uses: florianhorner/engineering-standards/\.github/workflows/"
+                r"commit-lint-reusable\.yml@([0-9a-f]{40})",
+                self.corpus_workflow,
+            )
+        )
+        self.assertEqual(actual, expected)
+        verifier = job_block(
             self.corpus_workflow,
-            "immutable-workflow-rollback-fixture",
+            "verify_immutable_workflow_fixtures",
         )
+        self.assertIn("permissions: {}", verifier)
+        self.assertIn(f'PRIMARY_SHA: ${{{{ needs.immutable_workflow_primary_fixture.outputs.workflow_sha }}}}', verifier)
+        self.assertIn('test "$ROLLBACK_RESULT" = "success"', verifier)
+        self.assertIn('test "$PRIMARY_RESULT" = "success"', verifier)
         self.assertIn(
-            "uses: florianhorner/engineering-standards/.github/workflows/"
-            "commit-lint-reusable.yml@9ac64657aba2d79975770dfe9852a4a1a580de8b",
-            fixture,
+            'test "$PRIMARY_SHA" = "e5a12bc2f5e0194cce8df7f3aae356588d3a5f8c"',
+            verifier,
         )
-        self.assertIn("contents: read", fixture)
-        self.assertNotRegex(fixture, r"(?m)^\s+[a-z-]+:\s*write\s*$")
 
     def test_workflow_exports_verified_identity(self) -> None:
         for name in ("workflow_repository", "workflow_ref", "workflow_sha"):

@@ -186,8 +186,38 @@ jobs:
           echo "::error::test-corpus produced ${{ steps.corpus.outputs.mismatches }} mismatch(es). See job summary."
           exit 1
 
-  immutable-workflow-rollback-fixture:
+  immutable_workflow_rollback_fixture:
     name: exact-SHA rollback workflow fixture
     permissions:
       contents: read
     uses: florianhorner/engineering-standards/.github/workflows/commit-lint-reusable.yml@9ac64657aba2d79975770dfe9852a4a1a580de8b
+
+  immutable_workflow_primary_fixture:
+    name: exact-SHA primary workflow fixture
+    permissions:
+      contents: read
+    uses: florianhorner/engineering-standards/.github/workflows/commit-lint-reusable.yml@e5a12bc2f5e0194cce8df7f3aae356588d3a5f8c
+
+  verify_immutable_workflow_fixtures:
+    name: verify immutable workflow identities
+    if: always()
+    needs:
+      - immutable_workflow_rollback_fixture
+      - immutable_workflow_primary_fixture
+    runs-on: ubuntu-latest
+    permissions: {}
+    env:
+      ROLLBACK_RESULT: ${{ needs.immutable_workflow_rollback_fixture.result }}
+      PRIMARY_RESULT: ${{ needs.immutable_workflow_primary_fixture.result }}
+      PRIMARY_REPOSITORY: ${{ needs.immutable_workflow_primary_fixture.outputs.workflow_repository }}
+      PRIMARY_REF: ${{ needs.immutable_workflow_primary_fixture.outputs.workflow_ref }}
+      PRIMARY_SHA: ${{ needs.immutable_workflow_primary_fixture.outputs.workflow_sha }}
+    steps:
+      - name: Assert exact hosted identities
+        run: |
+          set -euo pipefail
+          test "$ROLLBACK_RESULT" = "success"
+          test "$PRIMARY_RESULT" = "success"
+          test "$PRIMARY_REPOSITORY" = "florianhorner/engineering-standards"
+          test "$PRIMARY_REF" = "florianhorner/engineering-standards/.github/workflows/commit-lint-reusable.yml@e5a12bc2f5e0194cce8df7f3aae356588d3a5f8c"
+          test "$PRIMARY_SHA" = "e5a12bc2f5e0194cce8df7f3aae356588d3a5f8c"

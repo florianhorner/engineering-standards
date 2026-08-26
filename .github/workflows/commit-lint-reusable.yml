@@ -298,11 +298,22 @@ jobs:
         continue-on-error: true
         working-directory: consumer
         run: |
+          set +e
+          set -o pipefail
           node ../trusted/node_modules/@commitlint/cli/cli.js \
             --config ../trusted/.commitlintrc.json \
             --from '${{ steps.range.outputs.merge_base }}' \
             --to HEAD \
-            --verbose
+            --verbose \
+            2>&1 \
+            | python3 -I ../trusted/validator/sanitize_output.py -
+          PIPE_STATUSES=("${PIPESTATUS[@]}")
+          set -e
+          if [ "${PIPE_STATUSES[1]}" -ne 0 ]; then
+            echo "::error::Commitlint output sanitizer failed."
+            exit 2
+          fi
+          exit "${PIPE_STATUSES[0]}"
 
       - name: Fail on policy violations
         if: steps.validate.outputs.fail_count != '0' || steps.commitlint.outcome == 'failure'
