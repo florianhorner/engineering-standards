@@ -21,7 +21,7 @@ Canonical commit-message standard for every repo and AI tool Florian uses. Machi
 
 **Exempt subjects** (skip format check entirely): `Merge `, `Revert `, `cherry-pick: `, `[hotfix] `.
 
-**Trusted bots** (skip Why-required): `renovate[bot]`, `dependabot[bot]`, `pre-commit-ci[bot]`, `app/github-actions`.
+**Trusted bots** (configured PR-title skips only, verified by GitHub login): `renovate[bot]`, `dependabot[bot]`, `pre-commit-ci[bot]`, `app/github-actions`. Commit author names are never trusted for exemptions.
 
 **Bypass** (sanctioned): `git commit --no-verify` with `Policy-Override: <reason>` trailer. Logged to `~/.commit-bypass.log`.
 
@@ -162,7 +162,7 @@ Subjects matching these patterns skip the format check entirely:
 
 ### Bot allowlist
 
-Commits from these author identities skip the `WHY_REQUIRED` rule. Subject banned-patterns still apply.
+PR titles opened by these verified GitHub logins may skip the rule IDs listed in `trusted_bot_skips`. Commit messages never trust user-controlled Git author names for exemptions; their subjects are validated normally.
 
 - `renovate[bot]`
 - `dependabot[bot]` (requires `.github/dependabot.yml` with `commit-message.prefix: "chore"` to format conventionally)
@@ -195,7 +195,7 @@ SPEC: <spec_url>#<rule_id>
 OFFENDING: <literal failing line>
 ```
 
-CI additionally emits a markdown table to `$GITHUB_STEP_SUMMARY` (`SHA | subject | rule | fix hint`) and posts per-commit `gh pr review --comment` for each failing SHA.
+CI emits a bounded markdown table to `$GITHUB_STEP_SUMMARY` (`ref | rule IDs`). It does not post comments, submit reviews, or otherwise mutate the pull request.
 
 ### Versioning
 

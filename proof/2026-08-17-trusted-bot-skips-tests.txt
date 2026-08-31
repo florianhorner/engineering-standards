@@ -1,0 +1,19 @@
+trusted_bot_skips fix — local verification, 2026-08-17
+
+$ python3 -c 'yaml.safe_load(commit-lint-reusable.yml)'
+YAML: parses clean
+
+$ bash skip-logic cases (author x blocked-rule-set -> decision)
+  PASS  dependabot + long subject only -> SKIP
+  PASS  dependabot + long + why-required -> SKIP
+  PASS  dependabot + one non-skippable rule -> FAIL
+  PASS  dependabot + banned web-ui subject -> FAIL
+  PASS  human + long subject -> FAIL
+  PASS  renovate + long subject -> SKIP
+  PASS  empty author + long subject -> FAIL
+  PASS  dependabot + no blocks at all -> FAIL
+
+$ python3 validator/generate-hook.py > hook; hook <real dependabot title>
+BLOCK: SUBJECT_TOO_LONG Subject length 88 exceeds maximum 72 characters.
+FIX: Tighten the subject; move detail into the body.
+hook exit=1 — SUBJECT_TOO_LONG is the sole BLOCK, so the new logic skips it for dependabot[bot] and still fails it for a human author

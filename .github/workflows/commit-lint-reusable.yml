@@ -1,338 +1,298 @@
 # commit-lint-reusable.yml
 #
-# AUTO-CALLED by consumer repos via `workflow_call`. Do NOT call directly here.
-#
-# Consumer usage (per-repo `.github/workflows/commit-lint.yml`):
-#
-#     name: commit-lint
-#     on:
-#       pull_request:
-#         branches: [main]
-#     jobs:
-#       commit-lint:
-#         uses: florianhorner/engineering-standards/.github/workflows/commit-lint-reusable.yml@<SHA-PIN>
-#         permissions:
-#           contents: read
-#           pull-requests: write
-#
-# DO NOT add a `secrets:` block on the consumer side — the rules are public and
-# this workflow needs no secrets beyond the auto-provided GITHUB_TOKEN.
-#
-# Architecture: per the operator manual, rules are vendored in each consumer
-# repo at `.config/commit-rules.json` (SHA-pinned at bootstrap time). This
-# workflow reads that file, runs the same Python validator that the local
-# commit-msg hook runs, and additionally runs commitlint as a belt-and-braces
-# format check. Drift between local hook and CI is therefore structurally
-# impossible — both consume the same rules.json snapshot.
+# Called by consumer repositories at an immutable commit SHA. The called
+# workflow revision is the only executable policy source: consumer policy and
+# commitlint files are untrusted data and are never executed.
 
 name: commit-lint-reusable
 
 on:
   workflow_call:
-    # No inputs required. Rules live in the consumer repo at .config/commit-rules.json.
+    outputs:
+      workflow_repository:
+        description: Exact repository that supplied this reusable workflow
+        value: ${{ jobs.validate.outputs.workflow_repository }}
+      workflow_ref:
+        description: Exact repository, workflow path, and revision
+        value: ${{ jobs.validate.outputs.workflow_ref }}
+      workflow_sha:
+        description: Exact revision that supplied this reusable workflow
+        value: ${{ jobs.validate.outputs.workflow_sha }}
 
-permissions:
-  contents: read
-  pull-requests: write   # needed for `gh pr review --comment` per DX D3
+permissions: {}
 
 jobs:
   validate:
     name: validate commit messages
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      workflow_repository: ${{ steps.identity.outputs.workflow_repository }}
+      workflow_ref: ${{ steps.identity.outputs.workflow_ref }}
+      workflow_sha: ${{ steps.identity.outputs.workflow_sha }}
     env:
-      # Ensure deterministic regex behavior across runners.
       LC_ALL: C.UTF-8
-      ENGSTD_REPO: florianhorner/engineering-standards
-      # Pin the engineering-standards ref the validator script is fetched from.
-      # Consumers can override by setting the env on the calling workflow,
-      # but the default tracks main so consumers re-pin via the SHA in their
-      # own `uses:` line on the wrapper workflow.
-      ENGSTD_REF: main
-      GH_TOKEN: ${{ github.token }}
     steps:
-      # 1. Checkout the consumer repo with full history — needed for git merge-base.
-      - name: Checkout consumer repo
-        uses: actions/checkout@v4
+      - name: Checkout consumer repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.sha }}
+          path: consumer
           fetch-depth: 0
+          persist-credentials: false
 
-      # 2. Checkout engineering-standards alongside so we can use the canonical
-      #    Python generator/validator script. We pin to ENGSTD_REF (default main).
-      #    The actual rule contents come from the consumer's vendored copy at
-      #    .config/commit-rules.json — engineering-standards is only fetched here
-      #    for the validator code, not the rules.
-      - name: Checkout engineering-standards (validator code)
-        uses: actions/checkout@v4
+      - name: Checkout immutable workflow source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          repository: ${{ env.ENGSTD_REPO }}
-          ref: ${{ env.ENGSTD_REF }}
-          path: .engineering-standards
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: trusted
+          persist-credentials: false
 
-      # 3. Setup Node 20 (no cache: consumer repos may not have package-lock.json).
-      - name: Setup Node 20
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      # 4. Install pinned commitlint (belt-and-braces format check alongside
-      #    the Python validator). Pinned to 19.5.0 — bump deliberately.
-      - name: Install commitlint (pinned)
+      - name: Verify immutable workflow identity
+        id: identity
+        env:
+          EXPECTED_WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}
+          EXPECTED_WORKFLOW_REF: ${{ job.workflow_ref }}
+          EXPECTED_WORKFLOW_SHA: ${{ job.workflow_sha }}
         run: |
-          npm install --no-save \
-            @commitlint/cli@19.5.0 \
-            @commitlint/config-conventional@19.5.0
+          set -euo pipefail
 
-      # 5. Setup Python 3 — the same generator invoked by the local commit-msg
-      #    hook produces the validator script that runs here for parity.
+          ACTUAL_SHA="$(git -C trusted rev-parse HEAD)"
+          ACTUAL_ORIGIN="$(git -C trusted remote get-url origin)"
+          python3 -I trusted/validator/verify_workflow_identity.py \
+            "$EXPECTED_WORKFLOW_REPOSITORY" \
+            "$EXPECTED_WORKFLOW_REF" \
+            "$EXPECTED_WORKFLOW_SHA" \
+            "$ACTUAL_ORIGIN" \
+            "$ACTUAL_SHA"
+
+          {
+            echo "workflow_repository=$EXPECTED_WORKFLOW_REPOSITORY"
+            echo "workflow_ref=$EXPECTED_WORKFLOW_REF"
+            echo "workflow_sha=$EXPECTED_WORKFLOW_SHA"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "## Immutable workflow identity"
+            echo ""
+            echo "- Repository: \`$EXPECTED_WORKFLOW_REPOSITORY\`"
+            echo "- Reference: \`$EXPECTED_WORKFLOW_REF\`"
+            echo "- Revision: \`$EXPECTED_WORKFLOW_SHA\`"
+            echo "- Runner image: \`${ImageOS:-unknown} ${ImageVersion:-unknown}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Setup Node 24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '24'
+
       - name: Setup Python 3
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: '3.x'
 
-      # 6. Verify the consumer has vendored the rules. If not, fail loudly with
-      #    a copy-paste fix command — this is the only sensible behavior since
-      #    the workflow has no rule fallback by design.
-      - name: Verify vendored rules present
+      - name: Install locked commitlint toolchain
+        working-directory: trusted
+        env:
+          NPM_CONFIG_USERCONFIG: /dev/null
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Verify policy inputs
         run: |
-          if [ ! -f ".config/commit-rules.json" ]; then
-            {
-              echo "## commit-lint: missing vendored rules"
-              echo ""
-              echo "This repo has not vendored \`.config/commit-rules.json\`."
-              echo "Run the bootstrap script to install it:"
-              echo ""
-              echo '```'
-              echo "bash <(curl -fsSL https://raw.githubusercontent.com/florianhorner/engineering-standards/main/bootstrap-repo.sh) ."
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
-            echo "::error::Missing .config/commit-rules.json — run bootstrap-repo.sh"
+          set -euo pipefail
+          if [ ! -f "consumer/.config/commit-rules.json" ]; then
+            echo "::error::Missing consumer policy metadata at .config/commit-rules.json."
+            exit 2
+          fi
+          test -f trusted/specs/commit-rules.json
+          test -f trusted/.commitlintrc.json
+          test -f trusted/package-lock.json
+
+      - name: Create isolated scratch directory
+        id: scratch
+        run: |
+          set -euo pipefail
+          SCRATCH_DIR="$(mktemp -d "${RUNNER_TEMP}/commit-policy.XXXXXX")"
+          chmod 700 "$SCRATCH_DIR"
+          echo "path=$SCRATCH_DIR" >> "$GITHUB_OUTPUT"
+
+      - name: Compute immutable commit range
+        id: range
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+        working-directory: consumer
+        run: |
+          set -euo pipefail
+
+          HEAD_SHA="$(git rev-parse HEAD)"
+          if [ -n "$PR_HEAD_SHA" ]; then
+            if ! printf '%s\n' "$PR_HEAD_SHA" | grep -Eq '^[0-9a-f]{40}$' \
+              || ! git cat-file -e "${PR_HEAD_SHA}^{commit}" 2>/dev/null \
+              || ! git merge-base --is-ancestor "$PR_HEAD_SHA" "$HEAD_SHA"; then
+              echo "::error::Pull-request head is absent from the immutable merge checkout."
+              exit 2
+            fi
+          fi
+          if [ -n "$PR_BASE_SHA" ]; then
+            RANGE_BASE="$PR_BASE_SHA"
+          elif printf '%s\n' "$PUSH_BEFORE_SHA" | grep -Eq '^[0-9a-f]{40}$' \
+            && [ "$PUSH_BEFORE_SHA" != "0000000000000000000000000000000000000000" ]; then
+            RANGE_BASE="$PUSH_BEFORE_SHA"
+          elif git rev-parse --verify HEAD^ >/dev/null 2>&1; then
+            RANGE_BASE="$(git rev-parse HEAD^)"
+          else
+            RANGE_BASE="$HEAD_SHA"
+          fi
+
+          if ! git cat-file -e "${RANGE_BASE}^{commit}" 2>/dev/null; then
+            echo "::error::Immutable range base is not present in the checkout."
             exit 2
           fi
 
-      # 7. Resolve the commit range. We validate every non-merge commit between
-      #    the merge-base of origin/main and HEAD. This is bounded — no
-      #    full-history scan — and it matches the local pre-push hook semantics.
-      - name: Compute commit range
-        id: range
-        run: |
-          set -euo pipefail
-          # On pull_request events, github.base_ref is the target branch.
-          BASE_REF="${{ github.base_ref }}"
-          if [ -z "$BASE_REF" ]; then
-            BASE_REF="main"
-          fi
-          # Make sure we have the base branch locally for merge-base.
-          git fetch --no-tags origin "$BASE_REF"
-          MERGE_BASE="$(git merge-base "origin/${BASE_REF}" HEAD)"
-          echo "merge_base=$MERGE_BASE" >> "$GITHUB_OUTPUT"
-          # Bounded list of SHAs (no merges).
-          RANGE_SHAS="$(git rev-list --no-merges "${MERGE_BASE}..HEAD")"
+          MERGE_BASE="$(git merge-base "$RANGE_BASE" "$HEAD_SHA")"
+          RANGE_SHAS="$(git rev-list --no-merges "${MERGE_BASE}..${HEAD_SHA}")"
+          COUNT="$(printf '%s\n' "$RANGE_SHAS" | grep -cv '^$' || true)"
           {
+            echo "merge_base=$MERGE_BASE"
+            echo "count=$COUNT"
             echo "shas<<EOF_RANGE"
             echo "$RANGE_SHAS"
             echo "EOF_RANGE"
           } >> "$GITHUB_OUTPUT"
-          COUNT="$(printf '%s\n' "$RANGE_SHAS" | grep -cv '^$' || true)"
-          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
-          echo "Validating $COUNT commits in range ${MERGE_BASE}..HEAD"
+          echo "Validating $COUNT commits in range ${MERGE_BASE}..${HEAD_SHA}"
 
-      # 8. Generate the commit-msg validator hook from the consumer's vendored
-      #    rules using the canonical Python generator. We then run that hook
-      #    against each commit message file. This is byte-for-byte the same
-      #    code path the local hook runs — drift is structurally impossible.
-      - name: Generate validator hook from vendored rules
+      - name: Generate validator from immutable policy
+        env:
+          SCRATCH_DIR: ${{ steps.scratch.outputs.path }}
         run: |
           set -euo pipefail
-          # Stage the vendored rules where the generator expects them.
-          mkdir -p .engineering-standards/specs
-          cp .config/commit-rules.json .engineering-standards/specs/commit-rules.json
-          mkdir -p .ci-tmp
-          python3 .engineering-standards/validator/generate-hook.py > .ci-tmp/commit-msg-hook
-          chmod +x .ci-tmp/commit-msg-hook
+          mkdir -p "$SCRATCH_DIR/messages" "$SCRATCH_DIR/results"
+          python3 -I trusted/validator/generate-hook.py > "$SCRATCH_DIR/commit-msg-hook"
+          chmod +x "$SCRATCH_DIR/commit-msg-hook"
 
-      # 9. Validate each commit message in range. Failures are aggregated into
-      #    a markdown table emitted to $GITHUB_STEP_SUMMARY. Per-commit review
-      #    comments are posted with `gh pr review --comment`. Each individual
-      #    validation is wrapped in a 30s `timeout` to bound runaway regex.
-      - name: Validate commit messages
+      - name: Validate custom policy
         id: validate
         env:
-          # Pass user-controlled / multiline values through the environment so they
-          # are NEVER interpolated into the script text. A PR title containing a
-          # single quote (e.g. "pipeline's") otherwise closes the shell string and
-          # crashes the step ("unexpected EOF while looking for matching '"), and is
-          # a script-injection vector. See GitHub's "Understanding the risk of
-          # script injections" guidance.
           PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
           RANGE_SHAS: ${{ steps.range.outputs.shas }}
+          SCRATCH_DIR: ${{ steps.scratch.outputs.path }}
+          TRUSTED_ROOT: ${{ github.workspace }}/trusted
+        working-directory: consumer
         run: |
           set -uo pipefail
-          mkdir -p .ci-tmp/messages .ci-tmp/results
 
-          SHAS="$RANGE_SHAS"
-          if [ -z "${SHAS//[[:space:]]/}" ]; then
-            echo "No commits to validate (empty range). Likely a fast-forward PR with only merges."
-            echo "## commit-lint: nothing to validate" >> "$GITHUB_STEP_SUMMARY"
-            echo "fail_count=0" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
+          RULES_FILE="$TRUSTED_ROOT/specs/commit-rules.json"
+          TRUSTED_BOTS="$(python3 -I -c 'import json,sys; print("\n".join(json.load(open(sys.argv[1]))["exemptions"]["trusted_bots"]))' "$RULES_FILE")"
+          BOT_SKIPS="$(python3 -I -c 'import json,sys; print("\n".join(json.load(open(sys.argv[1]))["exemptions"]["trusted_bot_skips"]))' "$RULES_FILE")"
+
+          is_trusted_bot() {
+            [ -n "${1:-}" ] && printf '%s\n' "$TRUSTED_BOTS" | grep -qxF -- "$1"
+          }
+
+          all_blocks_skippable() {
+            result_file="$1"
+            # shellcheck disable=SC2016
+            ids="$(awk '/^BLOCK: / {print $2}' "$result_file")"
+            [ -n "$ids" ] || return 1
+            while IFS= read -r id; do
+              [ -z "$id" ] && continue
+              printf '%s\n' "$BOT_SKIPS" | grep -qxF -- "$id" || return 1
+            done <<EOF_IDS
+          $ids
+          EOF_IDS
+          }
+
+          record_failure() {
+            ref="$1"
+            result_file="$2"
+            # shellcheck disable=SC2016
+            ids="$(awk '/^BLOCK: / {printf "%s%s", separator, $2; separator=","}' "$result_file")"
+            [ -n "$ids" ] || ids="UNKNOWN"
+            printf '| %s | %s |\n' "$ref" "$ids" >> "$SCRATCH_DIR/failures.md"
+          }
 
           FAIL_COUNT=0
-          # Header for the markdown failure table — written only if we have failures.
-          FAIL_TABLE_FILE=".ci-tmp/fail-table.md"
-          : > "$FAIL_TABLE_FILE"
+          : > "$SCRATCH_DIR/failures.md"
 
-          # Validate the PR title (becomes squash-merge subject). We treat
-          # it as a synthetic commit message: subject only, empty body.
-          # PR_TITLE comes from the step `env:` above (injection-safe — never
-          # interpolated into the script text, so an apostrophe can't break it).
           if [ -n "$PR_TITLE" ]; then
-            PR_MSG_FILE=".ci-tmp/messages/__pr_title__.txt"
-            printf '%s\n' "$PR_TITLE" > "$PR_MSG_FILE"
-            PR_RESULT_FILE=".ci-tmp/results/__pr_title__.err"
-            if ! timeout 30s .ci-tmp/commit-msg-hook "$PR_MSG_FILE" 2> "$PR_RESULT_FILE"; then
-              FAIL_COUNT=$((FAIL_COUNT + 1))
-              SUBJECT_TRUNC="${PR_TITLE:0:60}"
-              # Extract first BLOCK line for the table.
-              RULE_ID="$(grep -E '^BLOCK: ' "$PR_RESULT_FILE" | head -n1 | awk '{print $2}')"
-              FIX_HINT="$(grep -E '^FIX: ' "$PR_RESULT_FILE" | head -n1 | sed 's/^FIX: //')"
-              printf '| PR title | `%s` | `%s` | %s |\n' \
-                "${SUBJECT_TRUNC//|/\\|}" "${RULE_ID:-UNKNOWN}" "${FIX_HINT//|/\\|}" \
-                >> "$FAIL_TABLE_FILE"
+            printf '%s\n' "$PR_TITLE" > "$SCRATCH_DIR/messages/__pr_title__.txt"
+            if ! timeout 30s "$SCRATCH_DIR/commit-msg-hook" \
+              "$SCRATCH_DIR/messages/__pr_title__.txt" \
+              2> "$SCRATCH_DIR/results/__pr_title__.err"; then
+              if is_trusted_bot "$PR_AUTHOR" \
+                && all_blocks_skippable "$SCRATCH_DIR/results/__pr_title__.err"; then
+                echo "PR title violations are skippable for the configured bot."
+              else
+                FAIL_COUNT=$((FAIL_COUNT + 1))
+                record_failure "PR title" "$SCRATCH_DIR/results/__pr_title__.err"
+              fi
             fi
           fi
 
           while IFS= read -r SHA; do
             [ -z "$SHA" ] && continue
-            MSG_FILE=".ci-tmp/messages/${SHA}.txt"
-            RESULT_FILE=".ci-tmp/results/${SHA}.err"
-            git log -1 --format=%B "$SHA" > "$MSG_FILE"
-            SUBJECT="$(head -n1 "$MSG_FILE")"
-
-            # Bot allowlist: skip WHY_REQUIRED for trusted bots. The hook
-            # itself does not know about authors; we honor the allowlist
-            # here in CI by checking author name. Other rules still apply.
-            AUTHOR_NAME="$(git log -1 --format=%an "$SHA")"
-            BOT_SKIP=0
-            case "$AUTHOR_NAME" in
-              "renovate[bot]"|"dependabot[bot]"|"pre-commit-ci[bot]"|"app/github-actions")
-                BOT_SKIP=1
-                ;;
-            esac
-
-            if ! timeout 30s .ci-tmp/commit-msg-hook "$MSG_FILE" 2> "$RESULT_FILE"; then
-              # Check if the only failure is WHY_REQUIRED and the author is a
-              # trusted bot — if so, treat as pass.
-              if [ "$BOT_SKIP" = "1" ] \
-                && grep -qE '^BLOCK: WHY_REQUIRED ' "$RESULT_FILE" \
-                && [ "$(grep -cE '^BLOCK: ' "$RESULT_FILE")" = "1" ]; then
-                continue
-              fi
+            git log -1 --format=%B "$SHA" > "$SCRATCH_DIR/messages/${SHA}.txt"
+            if ! timeout 30s "$SCRATCH_DIR/commit-msg-hook" \
+              "$SCRATCH_DIR/messages/${SHA}.txt" \
+              2> "$SCRATCH_DIR/results/${SHA}.err"; then
               FAIL_COUNT=$((FAIL_COUNT + 1))
-              SUBJECT_TRUNC="${SUBJECT:0:60}"
-              RULE_ID="$(grep -E '^BLOCK: ' "$RESULT_FILE" | head -n1 | awk '{print $2}')"
-              FIX_HINT="$(grep -E '^FIX: ' "$RESULT_FILE" | head -n1 | sed 's/^FIX: //')"
-              printf '| `%s` | `%s` | `%s` | %s |\n' \
-                "${SHA:0:7}" "${SUBJECT_TRUNC//|/\\|}" "${RULE_ID:-UNKNOWN}" "${FIX_HINT//|/\\|}" \
-                >> "$FAIL_TABLE_FILE"
+              record_failure "${SHA:0:12}" "$SCRATCH_DIR/results/${SHA}.err"
             fi
-          done <<< "$SHAS"
+          done <<EOF_SHAS
+          $RANGE_SHAS
+          EOF_SHAS
 
           echo "fail_count=$FAIL_COUNT" >> "$GITHUB_OUTPUT"
-
-          # Emit summary table to $GITHUB_STEP_SUMMARY (DX D3).
           {
-            echo "## commit-lint results"
+            echo "## Commit policy results"
             echo ""
-            echo "Validated **${{ steps.range.outputs.count }} commits** in range \`${{ steps.range.outputs.merge_base }}..HEAD\` (plus PR title)."
+            echo "Validated **${{ steps.range.outputs.count }} commits** plus the PR title when present."
             echo ""
             if [ "$FAIL_COUNT" -eq 0 ]; then
-              echo ":white_check_mark: All commit messages conform to the spec."
-              echo ""
-              echo "Spec: https://github.com/florianhorner/engineering-standards/blob/main/specs/commit-message-spec.md"
+              echo ":white_check_mark: Custom policy passed."
             else
-              echo ":x: **${FAIL_COUNT} failures.**"
+              echo ":x: **$FAIL_COUNT policy failures.**"
               echo ""
-              echo "| SHA | subject | rule | fix hint |"
-              echo "|---|---|---|---|"
-              cat "$FAIL_TABLE_FILE"
-              echo ""
-              echo "Spec: https://github.com/florianhorner/engineering-standards/blob/main/specs/commit-message-spec.md"
+              echo "| ref | rule IDs |"
+              echo "|---|---|"
+              cat "$SCRATCH_DIR/failures.md"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # 10. Belt-and-braces commitlint pass — using the standard config so the
-      #     conventional-commits format check has a second authority. This
-      #     catches anything the rules.json validator doesn't, and any
-      #     mismatch between the two surfaces drift in CI fast.
-      - name: Run commitlint (belt-and-braces)
-        if: steps.validate.outputs.fail_count == '0'
+      - name: Run trusted commitlint authority
+        id: commitlint
+        if: steps.range.outputs.count != '0'
+        continue-on-error: true
+        working-directory: consumer
         run: |
-          set -euo pipefail
-          # Use the per-repo `.commitlintrc.json` (vendored at bootstrap) as
-          # the authority. Fall back to a minimal inline config only if none
-          # exists, so this step never silently no-ops.
-          if [ ! -f ".commitlintrc.json" ] && [ ! -f ".commitlintrc" ] && [ ! -f "commitlint.config.js" ]; then
-            cat > .commitlintrc.json <<'JSON'
-          {"extends": ["@commitlint/config-conventional"]}
-          JSON
-          fi
-          # Validate the same range using commitlint --from / --to.
-          npx commitlint \
+          set +e
+          set -o pipefail
+          node ../trusted/node_modules/@commitlint/cli/cli.js \
+            --config ../trusted/.commitlintrc.json \
             --from '${{ steps.range.outputs.merge_base }}' \
             --to HEAD \
-            --verbose
-
-      # 11. Post per-commit review comments for each failure (DX D3).
-      #     Only fires when validate.outputs.fail_count != '0' (we have actionable
-      #     rule_id info to surface). If validate skipped entirely (e.g., earlier
-      #     step failed), we have nothing to comment about.
-      - name: Post per-commit PR review comments
-        if: steps.validate.outputs.fail_count != '' && steps.validate.outputs.fail_count != '0' && github.event_name == 'pull_request' && github.event.pull_request.number != ''
-        env:
-          # Same injection-safe pattern as the validate step — never interpolate
-          # an event value into the script text.
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          set -uo pipefail
-          mkdir -p .ci-tmp
-          if [ -z "$PR_NUMBER" ]; then
-            echo "No PR number available — skipping comment posting."
-            exit 0
+            --verbose \
+            2>&1 \
+            | python3 -I ../trusted/validator/sanitize_output.py -
+          PIPE_STATUSES=("${PIPESTATUS[@]}")
+          set -e
+          if [ "${PIPE_STATUSES[1]}" -ne 0 ]; then
+            echo "::error::Commitlint output sanitizer failed."
+            exit 2
           fi
-          # Aggregate all per-commit error files into a single review.
-          BODY_FILE=".ci-tmp/review-body.md"
-          {
-            echo "Commit-lint found violations. Each failing commit/PR-title is below."
-            echo ""
-            echo "Spec: https://github.com/florianhorner/engineering-standards/blob/main/specs/commit-message-spec.md"
-            echo ""
-            for f in .ci-tmp/results/*.err; do
-              [ -s "$f" ] || continue
-              SHA="$(basename "$f" .err)"
-              echo "### \`${SHA}\`"
-              echo ""
-              echo '```'
-              cat "$f"
-              echo '```'
-              echo ""
-            done
-          } > "$BODY_FILE"
-          gh pr review "$PR_NUMBER" \
-            --request-changes \
-            --body-file "$BODY_FILE" \
-            --repo "${{ github.repository }}" || {
-              # If `request-changes` fails (e.g. self-review prohibited),
-              # fall back to a plain comment.
-              gh pr comment "$PR_NUMBER" \
-                --body-file "$BODY_FILE" \
-                --repo "${{ github.repository }}"
-            }
+          exit "${PIPE_STATUSES[0]}"
 
-      # 12. Final fail/pass gate.
-      - name: Fail if any violations
-        if: steps.validate.outputs.fail_count != '0'
+      - name: Fail on policy violations
+        if: steps.validate.outputs.fail_count != '0' || steps.commitlint.outcome == 'failure'
+        env:
+          CUSTOM_FAILURES: ${{ steps.validate.outputs.fail_count }}
+          COMMITLINT_OUTCOME: ${{ steps.commitlint.outcome }}
         run: |
-          echo "::error::Commit-lint found ${{ steps.validate.outputs.fail_count }} violation(s). See job summary."
+          echo "::error::Commit policy failed (custom=$CUSTOM_FAILURES, commitlint=$COMMITLINT_OUTCOME)."
           exit 1

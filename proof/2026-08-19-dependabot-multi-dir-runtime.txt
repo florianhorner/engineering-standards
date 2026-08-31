@@ -1,0 +1,109 @@
+bootstrap-repo.sh step 4 — dependabot generation (issue #1), runtime verification, 2026-08-19
+
+Environment: Amazon Linux 2023, bash 5.2, git 2.47, python3 3.9 + pyyaml 5.4.1,
+jsonschema 3.2, shellcheck 0.11.0.
+Bootstrap run end to end (all 14 steps) against four synthetic repos, then
+against a clone of engineering-standards itself. Setup:
+
+  A: package.json, server/package.json, ha-addon/app/Dockerfile,
+     actions/my-action/action.yml, videos/_template/package.json,
+     videos/fixtures/minimal/package.json, node_modules/junk/package.json (gitignored)
+  B: src-tauri/Cargo.toml, scripts/package.json, plus the OLD root-only
+     dependabot.yml already installed between the markers (upgrade path)
+  C: package.json, server/package.json, plus a hand-added npm "/server" block
+     OUTSIDE the markers (the workaround documented in issue #1)
+  D: package.json, plus a hand-written config whose last top-level key is
+     `registries:` rather than `updates:` (shape this script must refuse)
+  E: package.json, plus a hand-written config already claiming every pair the
+     generator would emit (npm "/" and github-actions "/")
+
+$ shellcheck -S warning bootstrap-repo.sh
+only pre-existing SC2034 (C_GREEN unused); no findings in the new code
+
+$ bash bootstrap-repo.sh /tmp/dep-test/A
+[4/14] generate .github/dependabot.yml from detected manifests ... PASS
+    Dependabot: skipped 2 fixture/vendored manifest(s) — add by hand if intended:
+      - videos/_template/package.json
+      - videos/fixtures/minimal/package.json
+generated: github-actions ["/", "/actions/my-action"], npm ["/", "/server"],
+           docker "/ha-addon/app"
+  - node_modules/junk/package.json never appears (git ls-files, not find)
+  - both multi-directory blocks carry a groups: entry; the single-directory
+    docker block does not
+  - no pip block: repo has no Python manifest (the old snippet emitted one anyway)
+
+$ bash bootstrap-repo.sh /tmp/dep-test/B          # upgrade from the old snippet
+[4/14] ... PASS  dependabot.yml (refreshed in place as document — 3 ecosystem(s), 3 director(ies))
+before: npm "/", pip "/"            (both matched nothing in this repo)
+after:  github-actions "/", npm "/scripts", cargo "/src-tauri"
+  - refreshed between the existing markers, no double-append
+  - cargo was not in the old template's ecosystem list at all
+
+$ bash bootstrap-repo.sh /tmp/dep-test/C          # collision guard + list continuation
+[4/14] ... PASS  dependabot.yml (refreshed in place as items — 2 ecosystem(s), 2 director(ies))
+WARN 1 director(ies) already claimed by a block outside the markers — left alone
+     to avoid a duplicate-directory config error
+      - npm /server (verify it sets commit-message.prefix: chore, or delete it and re-run)
+resulting file parses to THREE update blocks in one list:
+      npm /server prefix=build   (hand-written, untouched)
+      npm /       prefix=chore   (generated)
+      github-actions / prefix=chore (generated)
+  - the managed block is emitted as bare list entries here. Writing a second
+    `version:`/`updates:` document inside the markers — what this script did
+    before — gave the file duplicate top-level keys, and YAML lets the later
+    one win: the hand-written /server block silently stopped being applied.
+    Verified by parsing: the old shape yielded 2 blocks, the new shape 3.
+
+$ bash bootstrap-repo.sh /tmp/dep-test/D          # unrecognized layout
+[4/14] generate .github/dependabot.yml from detected manifests ... WARN existing
+     config has a layout this script will not guess at (registries) — left untouched
+file byte-for-byte unchanged; the warning carries into the final summary and the
+manual checklist.
+
+$ bash bootstrap-repo.sh /tmp/dep-test/E          # nothing left to manage
+[4/14] generate .github/dependabot.yml from detected manifests ... WARN nothing
+     left to manage — every detected manifest is already claimed by blocks
+     outside the markers; file left untouched
+WARN 2 director(ies) already claimed by a block outside the markers
+file byte-for-byte unchanged. Without this guard the generator would have
+written `updates:` with an empty list, which Dependabot rejects outright.
+
+$ bash bootstrap-repo.sh /tmp/dep-test/A          # second run, idempotency
+IDEMPOTENT: run 2 output byte-identical to run 1
+(required fixing the marker-refresh awk, which emitted a blank line after
+ "# BEGIN:" that the create path does not)
+
+$ python3 -c 'yaml.safe_load_all(...)' — parse + duplicate-pair check
+A: 1 doc, 5 pairs, duplicates=none
+   docker /ha-addon/app | github-actions / | github-actions /actions/my-action
+   | npm / | npm /server        (all prefix=chore)
+B: 1 doc, 3 pairs, duplicates=none — cargo /src-tauri | github-actions / | npm /scripts
+C: 1 doc, 3 pairs, duplicates=none — as listed above
+D: 1 doc, 1 pair,  duplicates=none — npm / prefix=<none> (untouched)
+E: 1 doc, 2 pairs, duplicates=none — npm / | github-actions / (untouched)
+
+$ python3 -c 'jsonschema.validate(doc, schemastore/dependabot-2.0.json)'
+A: VALID   B: VALID   C: VALID   D: VALID   E: VALID   self: VALID
+(covers the directories list, groups, and applies-to keys)
+
+$ git clone engineering-standards /tmp/dep-test/self && bash bootstrap-repo.sh
+[4/14] generate .github/dependabot.yml from detected manifests ... PASS
+github-actions ["/", "/actions/ha-app-docs-lint"]
+  - "/actions/ha-app-docs-lint" is the blind spot this repo was living with:
+    Dependabot PR #12 bumped actions/setup-python to v7 in all three workflow
+    files and never touched actions/ha-app-docs-lint/action.yml, which still
+    pins actions/setup-python@ece7cb06 (= v6, resolved via the GitHub API).
+  - npm/pip/docker blocks dropped: this repo tracks no manifest for any of them.
+  - the committed .github/dependabot.yml is byte-identical to this output (diff clean).
+
+Fleet blast radius at time of fix (gh api tree scan, 21 non-archived repos):
+  flora-signal          server/package.json                              MISSED
+  ha-fp2-sleep          aqara_fp2_sleep/Dockerfile + 8x videos/*         MISSED
+  mammamiradio          ha-addon/mammamiradio/Dockerfile                 MISSED
+  gstack-for-kiro       .claude/skills/gstack/package.json               MISSED
+  engineering-standards actions/ha-app-docs-lint/action.yml              MISSED (fixed here)
+  tennis-watcher        src-tauri/Cargo.toml        (not yet bootstrapped)
+  gh-workflows          scripts/package.json        (not yet bootstrapped)
+Remediation for the four consumer repos is a plain re-run of bootstrap-repo.sh.
+ha-fp2-sleep's eight videos/* trees are fixtures/templates and stay skipped by
+default; its Dockerfile is picked up.

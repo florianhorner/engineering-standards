@@ -5,9 +5,9 @@ Florian's public engineering standards. Single source of truth for commit messag
 ## What's here
 
 - **[specs/commit-message-spec.md](specs/commit-message-spec.md)** — Conventional Commits + body-when-it-matters + agent-metadata trailers. 30-second cheat sheet at top.
-- **[specs/commit-rules.json](specs/commit-rules.json)** — Machine-readable rules consumed by validator binary, commit-msg hook, and CI workflow.
+- **[specs/commit-rules.json](specs/commit-rules.json)** — Machine-readable rules consumed by the hook generator and by the exact reusable-workflow revision each consumer pins.
 - **[docs/commit-system-operator.md](docs/commit-system-operator.md)** — How to bootstrap a repo, normal flow, override flow, troubleshooting.
-- **[.github/workflows/commit-lint-reusable.yml](.github/workflows/commit-lint-reusable.yml)** — Reusable workflow consumer repos call via `uses:`.
+- **[.github/workflows/commit-lint-reusable.yml](.github/workflows/commit-lint-reusable.yml)** — Content-addressed, read-only reusable workflow consumer repos call via an exact-SHA `uses:` pin.
 - **[validator/](validator/)** — Python hook generator (`generate-hook.py`) that emits the `commit-msg` hook from `specs/commit-rules.json`.
 - **[templates/](templates/)** — Drop-in files the bootstrap script copies into consumer repos.
 

@@ -1,0 +1,6 @@
+# actionlint 1.7.12 does not yet model GitHub's documented reusable-workflow
+# identity fields. Hosted fixtures verify both values and the checkout itself.
+paths:
+  .github/workflows/commit-lint-reusable.yml:
+    ignore:
+      - 'property "workflow_(repository|ref|sha)" is not defined in object type'

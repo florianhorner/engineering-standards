@@ -226,6 +226,162 @@ ${MARKER_END}"
   printf '%s\n' "$block" >> "$target"
 }
 
+# ---------------------------------------------------------------------------
+# Dependabot generation helpers (step 4)
+# ---------------------------------------------------------------------------
+# Issue #1: step 4 used to vendor a fixed snippet in which every block said
+# `directory: "/"`, so any package tree outside root was silently unmanaged —
+# flora-signal's server/ (@aws-sdk, ws), mammamiradio's ha-addon Dockerfile,
+# and this repo's own actions/ha-app-docs-lint/action.yml, which sat on a
+# setup-python pin Dependabot never bumped while the workflows moved on.
+# The config is now generated from what the repo actually tracks.
+#
+# Manifests that exist to be parsed rather than installed: vendored trees,
+# virtualenvs, build output, and fixture/template package trees (ha-fp2-sleep
+# carries eight of them under videos/). Skipped manifests are reported, never
+# dropped silently — the operator can add them by hand.
+readonly DEPENDABOT_SKIP_RE='(^|/)(node_modules|bower_components|vendor|third_party|\.venv|venv|\.tox|dist|build|target)/|(^|/)(fixtures?|__fixtures__|testdata|_template)/'
+
+# Map a tracked path to its Dependabot ecosystem ("" if it is not a manifest).
+dependabot_ecosystem_for() {
+  case "${1##*/}" in
+    package.json)                         printf 'npm' ;;
+    pyproject.toml|Pipfile|setup.py)      printf 'pip' ;;
+    requirements*.txt)                    printf 'pip' ;;
+    Cargo.toml)                           printf 'cargo' ;;
+    composer.json)                        printf 'composer' ;;
+    go.mod)                               printf 'gomod' ;;
+    Gemfile)                              printf 'bundler' ;;
+    action.yml|action.yaml)               printf 'github-actions' ;;
+    Dockerfile|Dockerfile.*|*.Dockerfile) printf 'docker' ;;
+    *)                                    printf '' ;;
+  esac
+}
+
+# Ecosystems that distinguish dev dependencies accept commit-message.prefix-development.
+dependabot_has_dev_prefix() {
+  case "$1" in
+    npm|pip|composer|bundler|mix|maven) return 0 ;;
+    *)                                  return 1 ;;
+  esac
+}
+
+# Render one update block. `dirs` is a newline-separated, pre-sorted list.
+dependabot_render_block() {
+  local eco="$1" dirs="$2" count d
+  count="$(printf '%s\n' "$dirs" | grep -c . || true)"
+  printf '  - package-ecosystem: "%s"\n' "$eco"
+  if [ "$count" -le 1 ]; then
+    printf '    directory: "%s"\n' "$dirs"
+  else
+    # `directories` (plural) takes a list; one block per ecosystem instead of
+    # one block per directory, because GitHub rejects the whole config when two
+    # blocks of the same ecosystem overlap. Paths are enumerated explicitly —
+    # globbing is documented but broken (dependabot-core#12348).
+    printf '    directories:\n'
+    while IFS= read -r d; do
+      [ -n "$d" ] && printf '      - "%s"\n' "$d"
+    done <<< "$dirs"
+  fi
+  printf '    schedule:\n'
+  printf '      interval: "weekly"\n'
+  printf '    open-pull-requests-limit: 5\n'
+  printf '    commit-message:\n'
+  printf '      prefix: "chore"\n'
+  if dependabot_has_dev_prefix "$eco"; then
+    printf '      prefix-development: "chore"\n'
+  fi
+  printf '      include: "scope"\n'
+  if [ "$count" -gt 1 ]; then
+    # open-pull-requests-limit is not reliably enforced across a multi-directory
+    # block (dependabot-core#10395: 26 directories produced 26 PRs against a
+    # limit of 10), so grouping is the thing that actually caps volume.
+    printf '    groups:\n'
+    printf '      %s-all:\n' "$eco"
+    printf '        applies-to: version-updates\n'
+    printf '        patterns:\n'
+    printf '          - "*"\n'
+  fi
+  printf '\n'
+}
+
+# What shape may the managed block take inside an existing dependabot.yml?
+#   document — a whole `version:` / `updates:` document (the block owns the file)
+#   items    — bare `- package-ecosystem:` entries continuing an existing list
+#   unknown  — a layout this script will not guess at; leave the file alone
+# A file that already declares `updates:` outside our markers must get `items`:
+# a second `version:`/`updates:` is a duplicate top-level key, and YAML lets the
+# later one win, so the hand-written blocks silently stop being updated.
+dependabot_block_shape() {
+  local shape facts last_before after last_key
+  if grep -qF "# BEGIN: commit-message-standards" "$DEPENDABOT_PATH"; then
+    facts="$(awk '
+      /^# BEGIN: commit-message-standards/ { seen = 1; before = lastkey; inblk = 1; next }
+      /^# END: commit-message-standards/   { inblk = 0; next }
+      inblk { next }
+      /^[A-Za-z_][A-Za-z0-9_-]*:/ { lastkey = $0; sub(/:.*/, "", lastkey); if (seen) after++ }
+      END { printf "%s|%d", before, after + 0 }
+    ' "$DEPENDABOT_PATH")"
+    last_before="${facts%%|*}"
+    after="${facts##*|}"
+    if [ "$after" -gt 0 ]; then
+      shape="unknown:keys-after-the-managed-block"
+    elif [ -z "$last_before" ]; then
+      shape="document"
+    elif [ "$last_before" = "updates" ]; then
+      shape="items"
+    else
+      shape="unknown:${last_before}"
+    fi
+  else
+    last_key="$(grep -oE '^[A-Za-z_][A-Za-z0-9_-]*:' "$DEPENDABOT_PATH" | tail -n1 | tr -d ':' || true)"
+    if [ -z "$last_key" ]; then
+      shape="document"
+    elif [ "$last_key" = "updates" ]; then
+      shape="items"
+    else
+      shape="unknown:${last_key}"
+    fi
+  fi
+  # Continuing a list only works if our entries line up with the existing ones.
+  if [ "$shape" = "items" ] \
+     && grep -qE '^[[:space:]]*-' "$DEPENDABOT_PATH" \
+     && ! grep -qE '^  -' "$DEPENDABOT_PATH"; then
+    shape="unknown:list-indentation"
+  fi
+  printf '%s' "$shape"
+}
+
+# Ecosystem+directory pairs already claimed by blocks OUTSIDE our markers —
+# i.e. the hand-edit workaround from issue #1. Emitting those again would make
+# Dependabot reject the entire file for overlapping directories.
+dependabot_foreign_pairs() {
+  [ -f "$DEPENDABOT_PATH" ] || return 0
+  awk '
+    /^# BEGIN: commit-message-standards/ { inblk = 1; next }
+    /^# END: commit-message-standards/   { inblk = 0; next }
+    inblk { next }
+    /package-ecosystem:[ \t]*/ {
+      eco = $0; sub(/.*package-ecosystem:[ \t]*/, "", eco)
+      gsub(/["'"'"']/, "", eco); gsub(/[ \t]+$/, "", eco); indirs = 0; next
+    }
+    /directories:[ \t]*$/ { indirs = 1; next }
+    /directory:[ \t]*/ {
+      d = $0; sub(/.*directory:[ \t]*/, "", d)
+      gsub(/["'"'"']/, "", d); gsub(/[ \t]+$/, "", d); indirs = 0
+      if (eco != "") print eco "|" d
+      next
+    }
+    indirs && /^[ \t]*-[ \t]*/ {
+      d = $0; sub(/^[ \t]*-[ \t]*/, "", d)
+      gsub(/["'"'"']/, "", d); gsub(/[ \t]+$/, "", d)
+      if (eco != "") print eco "|" d
+      next
+    }
+    { indirs = 0 }
+  ' "$DEPENDABOT_PATH"
+}
+
 TOTAL_STEPS=14
 
 # ---------------------------------------------------------------------------
@@ -317,7 +473,6 @@ on:
     branches: [main]
 permissions:
   contents: read
-  pull-requests: write
 jobs:
   commit-lint:
     uses: ${ENGSTD_REPO}/.github/workflows/commit-lint-reusable.yml@${ENGSTD_SHA}
@@ -328,72 +483,172 @@ fi
 rm -f "$TMP_CI"
 
 # ---------------------------------------------------------------------------
-# Step 4: patch or create .github/dependabot.yml
+# Step 4: generate .github/dependabot.yml from the manifests this repo tracks
 # ---------------------------------------------------------------------------
-step_start 4 "$TOTAL_STEPS" "patch ${DEPENDABOT_PATH} (commit-message.prefix = chore)"
-DEPENDABOT_URL="${ENGSTD_RAW_BASE}/${ENGSTD_SHA}/templates/dependabot-snippet.yml"
+step_start 4 "$TOTAL_STEPS" "generate ${DEPENDABOT_PATH} from detected manifests"
 TMP_DEP="$(mktemp)"
-if curl -fsSL --max-time 30 "$DEPENDABOT_URL" -o "$TMP_DEP" 2>/dev/null \
-   && [ -s "$TMP_DEP" ]; then
-  if [ ! -f "$DEPENDABOT_PATH" ]; then
-    mkdir -p "$(dirname "$DEPENDABOT_PATH")"
-    {
-      printf '# BEGIN: commit-message-standards\n'
-      cat "$TMP_DEP"
-      printf '# END: commit-message-standards\n'
-    } > "$DEPENDABOT_PATH"
-    TOUCHED_FILES+=("$DEPENDABOT_PATH")
-    step_pass "dependabot.yml (created)"
-  else
-    # Idempotent merge: if the snippet markers already exist, refresh; else
-    # render via marker block helper. Dependabot YAML doesn't support comments
-    # the same way, so we use literal `# <BEGIN/END>` lines.
-    if grep -qF "# BEGIN: commit-message-standards" "$DEPENDABOT_PATH"; then
-      tmp="$(mktemp)"
-      awk -v begin="# BEGIN: commit-message-standards" \
-          -v end="# END: commit-message-standards" \
-          -v file="$TMP_DEP" '
-        BEGIN {
-          while ((getline line < file) > 0) snippet = snippet line "\n"
-          close(file)
-        }
-        $0 ~ begin { in_block = 1; printf "%s%s\n", begin, "\n"; printf "%s", snippet; printf "%s\n", end; next }
-        $0 ~ end   { in_block = 0; next }
-        !in_block  { print }
-      ' "$DEPENDABOT_PATH" > "$tmp"
-      mv "$tmp" "$DEPENDABOT_PATH"
-      step_pass "dependabot.yml (refreshed in place)"
-    else
-      {
-        printf '\n# BEGIN: commit-message-standards\n'
-        cat "$TMP_DEP"
-        printf '# END: commit-message-standards\n'
-      } >> "$DEPENDABOT_PATH"
-      TOUCHED_FILES+=("$DEPENDABOT_PATH")
-      step_pass "dependabot.yml (appended snippet)"
+DEP_PAIRS="$(mktemp)"
+DEP_SKIPPED=()
+
+# git ls-files, not find: tracked files only, so ignored trees (node_modules,
+# dist, .venv) never reach the skip list in the first place. Read via a temp
+# file rather than process substitution — some sandboxes have no /dev/fd.
+DEP_TRACKED="$(mktemp)"
+git ls-files > "$DEP_TRACKED" 2>/dev/null || true
+while IFS= read -r dep_path; do
+  [ -z "$dep_path" ] && continue
+  dep_eco="$(dependabot_ecosystem_for "$dep_path")"
+  [ -z "$dep_eco" ] && continue
+  if printf '%s\n' "$dep_path" | grep -Eq "$DEPENDABOT_SKIP_RE"; then
+    DEP_SKIPPED+=("$dep_path")
+    continue
+  fi
+  dep_dir="/$(dirname "$dep_path")"
+  [ "$dep_dir" = "/." ] && dep_dir="/"
+  printf '%s|%s\n' "$dep_eco" "$dep_dir" >> "$DEP_PAIRS"
+done < "$DEP_TRACKED"
+rm -f "$DEP_TRACKED"
+
+# github-actions always covers "/": Dependabot reads .github/workflows from
+# there, and step 3 just installed a workflow into it.
+printf 'github-actions|/\n' >> "$DEP_PAIRS"
+
+# Drop anything a hand-added block outside our markers already claims.
+DEP_COLLISIONS=()
+if [ -f "$DEPENDABOT_PATH" ]; then
+  DEP_FOREIGN="$(mktemp)"
+  # Empty lines would turn `grep -f` into "match everything" and wipe the
+  # generated config, so they are filtered before the file is used as a pattern.
+  dependabot_foreign_pairs 2>/dev/null | grep -v '^[[:space:]]*$' > "$DEP_FOREIGN" || true
+  if [ -s "$DEP_FOREIGN" ]; then
+    dep_sorted="$(mktemp)"
+    sort -u "$DEP_PAIRS" > "$dep_sorted"
+    while IFS= read -r dep_pair; do
+      [ -z "$dep_pair" ] && continue
+      if grep -qxF "$dep_pair" "$DEP_FOREIGN"; then
+        DEP_COLLISIONS+=("$dep_pair")
+      fi
+    done < "$dep_sorted"
+    rm -f "$dep_sorted"
+    if [ "${#DEP_COLLISIONS[@]}" -gt 0 ]; then
+      dep_kept="$(mktemp)"
+      grep -vxF -f "$DEP_FOREIGN" "$DEP_PAIRS" > "$dep_kept" || true
+      mv "$dep_kept" "$DEP_PAIRS"
     fi
   fi
+  rm -f "$DEP_FOREIGN"
+fi
+
+DEP_HEADER="$(mktemp)"
+DEP_BLOCKS="$(mktemp)"
+{
+  printf '# Generated by bootstrap-repo.sh from the manifests this repo tracks.\n'
+  printf '# Re-run the bootstrap to refresh after adding or removing a package tree;\n'
+  printf '# do not hand-edit between the markers. Blocks outside the markers are kept.\n'
+  printf '#\n'
+  printf '# The `commit-message.prefix: "chore"` line is the load-bearing part —\n'
+  printf "# Dependabot's default subject \"Bump foo from 1 to 2\" fails the format rule\n"
+  printf '# per Eng E8. Everything else is sensible defaults.\n'
+  printf '#\n'
+  printf '# Spec reference: https://github.com/%s/blob/main/specs/commit-message-spec.md#bot-allowlist\n' "$ENGSTD_REPO"
+} > "$DEP_HEADER"
+
+# Fixed ecosystem order keeps the emitted file stable across runs, which is what
+# makes the marker refresh a no-op when nothing changed.
+DEP_ECO_COUNT=0
+DEP_DIR_COUNT=0
+for dep_eco in github-actions npm pip docker cargo composer gomod bundler; do
+  dep_dirs="$(grep "^${dep_eco}|" "$DEP_PAIRS" 2>/dev/null | cut -d'|' -f2 | sort -u || true)"
+  [ -z "$dep_dirs" ] && continue
+  DEP_ECO_COUNT=$((DEP_ECO_COUNT + 1))
+  DEP_DIR_COUNT=$((DEP_DIR_COUNT + $(printf '%s\n' "$dep_dirs" | grep -c . || true)))
+  dependabot_render_block "$dep_eco" "$dep_dirs" >> "$DEP_BLOCKS"
+done
+rm -f "$DEP_PAIRS"
+
+# Two renderings: a whole document, and the entries alone for the case where an
+# existing `updates:` list has to be continued rather than redeclared. Command
+# substitution eats the trailing blank line the last block leaves behind, which
+# is what makes a re-run byte-identical.
+TMP_DEP_ITEMS="$(mktemp)"
+printf '%s\n' "$(cat "$DEP_HEADER"; printf 'version: 2\nupdates:\n'; cat "$DEP_BLOCKS")" > "$TMP_DEP"
+printf '%s\n' "$(cat "$DEP_HEADER"; cat "$DEP_BLOCKS")" > "$TMP_DEP_ITEMS"
+rm -f "$DEP_HEADER" "$DEP_BLOCKS"
+
+DEP_SUMMARY="${DEP_ECO_COUNT} ecosystem(s), ${DEP_DIR_COUNT} director(ies)"
+if [ "$DEP_ECO_COUNT" -eq 0 ]; then
+  # Everything this repo has is already claimed by blocks outside the markers.
+  # Writing the block anyway would leave an empty `updates:` list, which
+  # Dependabot rejects outright.
+  step_warn "dependabot.yml" "nothing left to manage — every detected manifest is already claimed by blocks outside the markers; file left untouched"
+elif [ ! -f "$DEPENDABOT_PATH" ]; then
+  mkdir -p "$(dirname "$DEPENDABOT_PATH")"
+  {
+    printf '# BEGIN: commit-message-standards\n'
+    cat "$TMP_DEP"
+    printf '# END: commit-message-standards\n'
+  } > "$DEPENDABOT_PATH"
+  TOUCHED_FILES+=("$DEPENDABOT_PATH")
+  step_pass "dependabot.yml (created — ${DEP_SUMMARY})"
 else
-  if [ ! -f "$DEPENDABOT_PATH" ]; then
-    mkdir -p "$(dirname "$DEPENDABOT_PATH")"
-    cat > "$DEPENDABOT_PATH" <<'YAML'
-version: 2
-updates:
-  - package-ecosystem: "npm"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    commit-message:
-      prefix: "chore"
-      include: "scope"
-YAML
+  # A whole document when the managed block owns the file, bare list entries
+  # when it has to slot into a config someone else wrote.
+  DEP_SHAPE="$(dependabot_block_shape)"
+  case "$DEP_SHAPE" in
+    document) DEP_SNIPPET="$TMP_DEP" ;;
+    items)    DEP_SNIPPET="$TMP_DEP_ITEMS" ;;
+    *)        DEP_SNIPPET="" ;;
+  esac
+
+  if [ -z "$DEP_SNIPPET" ]; then
+    step_warn "dependabot.yml" "existing config has a layout this script will not guess at (${DEP_SHAPE#unknown:}) — left untouched"
+    info "  Add the generated blocks by hand, or move the config to a plain version:/updates: file and re-run."
+  elif grep -qF "# BEGIN: commit-message-standards" "$DEPENDABOT_PATH"; then
+    # Idempotent merge: the markers already exist, so refresh what is between
+    # them. Dependabot YAML has no comment convention of its own, so the markers
+    # are literal `# <BEGIN/END>` lines.
+    tmp="$(mktemp)"
+    awk -v begin="# BEGIN: commit-message-standards" \
+        -v end="# END: commit-message-standards" \
+        -v file="$DEP_SNIPPET" '
+      BEGIN {
+        while ((getline line < file) > 0) snippet = snippet line "\n"
+        close(file)
+      }
+      # No blank line after the marker: the create path does not emit one, and
+      # refresh has to match it byte-for-byte or every re-run shows a diff.
+      $0 ~ begin { in_block = 1; printf "%s\n", begin; printf "%s", snippet; printf "%s\n", end; next }
+      $0 ~ end   { in_block = 0; next }
+      !in_block  { print }
+    ' "$DEPENDABOT_PATH" > "$tmp"
+    mv "$tmp" "$DEPENDABOT_PATH"
     TOUCHED_FILES+=("$DEPENDABOT_PATH")
-    step_warn "dependabot.yml" "template not yet published; wrote npm-only fallback"
+    step_pass "dependabot.yml (refreshed in place as ${DEP_SHAPE} — ${DEP_SUMMARY})"
   else
-    step_warn "dependabot.yml" "template not published and target exists; not patched — verify commit-message.prefix manually"
+    {
+      printf '\n# BEGIN: commit-message-standards\n'
+      cat "$DEP_SNIPPET"
+      printf '# END: commit-message-standards\n'
+    } >> "$DEPENDABOT_PATH"
+    TOUCHED_FILES+=("$DEPENDABOT_PATH")
+    step_pass "dependabot.yml (appended as ${DEP_SHAPE} — ${DEP_SUMMARY})"
   fi
 fi
-rm -f "$TMP_DEP"
+rm -f "$TMP_DEP" "$TMP_DEP_ITEMS"
+
+# Never cap coverage silently: say which manifests were left out and why.
+if [ "${#DEP_SKIPPED[@]}" -gt 0 ]; then
+  info "Dependabot: skipped ${#DEP_SKIPPED[@]} fixture/vendored manifest(s) — add by hand if intended:"
+  for dep_path in "${DEP_SKIPPED[@]}"; do
+    info "  - ${dep_path}"
+  done
+fi
+if [ "${#DEP_COLLISIONS[@]}" -gt 0 ]; then
+  step_warn "dependabot.yml" "${#DEP_COLLISIONS[@]} director(ies) already claimed by a block outside the markers — left alone to avoid a duplicate-directory config error"
+  for dep_pair in "${DEP_COLLISIONS[@]}"; do
+    info "  - ${dep_pair%%|*} ${dep_pair##*|} (verify it sets commit-message.prefix: chore, or delete it and re-run)"
+  done
+fi
 
 # ---------------------------------------------------------------------------
 # Step 5: append CLAUDE.md snippet (idempotent, marker-bracketed)
