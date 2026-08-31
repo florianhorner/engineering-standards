@@ -12,7 +12,7 @@
 #
 # Usage:
 #   cloud/install-gstack.sh                  # bake into the snapshot (build time)
-#   GSTACK_REF=v1.2.3 cloud/install-gstack.sh
+#   GSTACK_REF=<40-char-sha> cloud/install-gstack.sh
 #   GSTACK_HOSTS="claude codex" cloud/install-gstack.sh
 #
 # Idempotent: re-running updates the checkout in place and re-registers skills
@@ -20,8 +20,10 @@
 # registered mid-session only take effect after the session restarts.
 #
 # Environment:
-#   GSTACK_REF    git ref to install (default: main). Pin to a tag/SHA for
-#                 reproducible builds — gstack moves fast.
+#   GSTACK_REF    40-char commit SHA to install (default: baked-in pin below).
+#                 Branch names and tags are rejected — a mutable upstream ref
+#                 would execute unreviewed code at build time. Bump the default
+#                 by editing this file (and reviewing the new SHA).
 #   GSTACK_HOSTS  space-separated agent hosts (default: "claude codex cursor").
 #                 ./setup --help lists claude, codex, kiro, factory, opencode,
 #                 openclaw, hermes, gbrain; `cursor` works but is undocumented.
@@ -35,6 +37,8 @@
 #
 # Changelog:
 #   2026-08-20: first version, extracted from a verified manual run.
+#   2026-08-31: pin gstack to a full SHA (fail closed); install bun from GitHub
+#               releases with a baked SHA256 instead of curl|bash.
 
 set -uo pipefail
 
@@ -43,22 +47,108 @@ warn() { printf '[install-gstack] WARN: %s\n' "$*" >&2; }
 die()  { printf '[install-gstack] FATAL: %s\n' "$*" >&2; exit 1; }
 
 GSTACK_DIR="$HOME/.claude/skills/gstack"
-GSTACK_REF="${GSTACK_REF:-main}"
+# gstack @ 2026-08-31 (v1.76.0.0, main tip). Bump by replacing this SHA.
+GSTACK_REF="${GSTACK_REF:-253d1dfe2694e49d60ba083423446b8363e113eb}"
 GSTACK_HOSTS="${GSTACK_HOSTS:-claude codex cursor}"
 BUN_BIN="$HOME/.bun/bin"
+
+# bun v1.4.0 (2026-08-20). Bump BUN_VERSION and the SHA256s together from
+# https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/SHASUMS256.txt
+BUN_VERSION='1.4.0'
+BUN_SHA256_LINUX_X64='2d03fb5fb83ac8b567aca0a281b2ce1a1a19d488f56c2968d88c3f25e92fe452'
+BUN_SHA256_LINUX_X64_BASELINE='184fb4595f0d401a217cf7c78c1bc430ba83314dab7a8b94805babbf7fa7097f'
+BUN_SHA256_LINUX_AARCH64='4b1a332ee861983eb93bcfe6f770fff94e3e31b2c388bdaea3c8ed35e58eed0e'
+
+is_full_sha() {
+  printf '%s' "$1" | grep -Eq '^[0-9a-f]{40}$'
+}
 
 # ── bun ────────────────────────────────────────────────────────────────────
 # Hard requirement: gstack's ./setup aborts with "bun is required but not
 # installed" before it registers anything. Not preinstalled on the cloud image.
+# Download the GitHub-release zip and verify a baked SHA256 — do not pipe
+# bun.sh/install (or any other remote script) to a shell.
+extract_zip() {
+  local zip="$1" dest="$2"
+  if command -v unzip >/dev/null 2>&1; then
+    unzip -qo "$zip" -d "$dest" || return 1
+  elif command -v python3 >/dev/null 2>&1; then
+    python3 -c 'import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])' \
+      "$zip" "$dest" || return 1
+  else
+    die 'need unzip or python3 to extract bun'
+  fi
+}
+
+install_bun_pinned() {
+  local zip_name expected url tmpdir zip actual bun_src
+  case "$(uname -m)" in
+    x86_64)
+      if grep -qw avx2 /proc/cpuinfo 2>/dev/null; then
+        zip_name='bun-linux-x64.zip'
+        expected="$BUN_SHA256_LINUX_X64"
+      else
+        zip_name='bun-linux-x64-baseline.zip'
+        expected="$BUN_SHA256_LINUX_X64_BASELINE"
+      fi
+      ;;
+    aarch64|arm64)
+      zip_name='bun-linux-aarch64.zip'
+      expected="$BUN_SHA256_LINUX_AARCH64"
+      ;;
+    *)
+      die "unsupported architecture $(uname -m) for bun"
+      ;;
+  esac
+
+  url="https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/${zip_name}"
+  tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/bun-install.XXXXXX")" || die 'mktemp failed'
+  zip="$tmpdir/$zip_name"
+
+  if ! curl -fsSL "$url" -o "$zip"; then
+    rm -rf "$tmpdir"
+    die "bun download failed ($url)"
+  fi
+
+  actual="$(sha256sum "$zip" | awk '{print $1}')"
+  if [ "$actual" != "$expected" ]; then
+    rm -rf "$tmpdir"
+    die "bun checksum mismatch for $zip_name (got $actual, want $expected)"
+  fi
+
+  if ! extract_zip "$zip" "$tmpdir"; then
+    rm -rf "$tmpdir"
+    die 'bun unzip failed'
+  fi
+
+  bun_src="$(find "$tmpdir" -type f -name bun | head -n1)"
+  if [ -z "$bun_src" ]; then
+    rm -rf "$tmpdir"
+    die 'bun binary missing from archive'
+  fi
+
+  mkdir -p "$BUN_BIN" || { rm -rf "$tmpdir"; die "could not create $BUN_BIN"; }
+  cp "$bun_src" "$BUN_BIN/bun"
+  chmod 755 "$BUN_BIN/bun"
+  ln -sfn bun "$BUN_BIN/bunx"
+  rm -rf "$tmpdir"
+}
+
 ensure_bun() {
   export PATH="$BUN_BIN:$PATH"
-  if command -v bun >/dev/null 2>&1; then
+  if command -v bun >/dev/null 2>&1 \
+     && [ "$(bun --version 2>/dev/null || true)" = "$BUN_VERSION" ]; then
     log "bun already present ($(bun --version))"
+    if [ -x "$BUN_BIN/bun" ] && [ ! -e "$BUN_BIN/bunx" ]; then
+      ln -sfn bun "$BUN_BIN/bunx"
+    fi
   else
-    log 'installing bun ...'
-    curl -fsSL https://bun.sh/install | bash >/dev/null 2>&1 \
-      || die 'bun install failed'
+    log "installing bun ${BUN_VERSION} from GitHub releases ..."
+    install_bun_pinned
     command -v bun >/dev/null 2>&1 || die 'bun installed but not on PATH'
+    command -v bunx >/dev/null 2>&1 || die 'bunx missing after bun install'
+    [ "$(bun --version)" = "$BUN_VERSION" ] \
+      || die "bun version $(bun --version) != pinned ${BUN_VERSION}"
     log "bun $(bun --version) installed"
   fi
 
@@ -73,30 +163,34 @@ ensure_bun() {
 }
 
 # ── checkout ───────────────────────────────────────────────────────────────
+# Fetch the pinned SHA only. No clone of default-branch as a fallback, and no
+# "stay on whatever we got" warning — a miss is a failed build.
 fetch_gstack() {
+  local expected actual
+  expected="$(printf '%s' "$GSTACK_REF" | tr 'A-F' 'a-f')"
+  is_full_sha "$expected" \
+    || die "GSTACK_REF must be a 40-char commit SHA (got '$GSTACK_REF')"
+
   if [ -d "$GSTACK_DIR/.git" ]; then
-    log "updating gstack to '$GSTACK_REF' ..."
-    git -C "$GSTACK_DIR" fetch --quiet --depth 1 origin "$GSTACK_REF" \
-      && git -C "$GSTACK_DIR" reset --quiet --hard FETCH_HEAD \
-      || die "could not update gstack to '$GSTACK_REF'"
+    log "updating gstack to $expected ..."
   else
-    log "cloning gstack '$GSTACK_REF' ..."
+    log "cloning gstack $expected ..."
     rm -rf "$GSTACK_DIR"
     mkdir -p "$(dirname "$GSTACK_DIR")" || die 'could not create ~/.claude/skills'
-    git clone --quiet --single-branch --depth 1 --branch "$GSTACK_REF" \
-      https://github.com/garrytan/gstack.git "$GSTACK_DIR" 2>/dev/null \
-      || git clone --quiet --single-branch --depth 1 \
-           https://github.com/garrytan/gstack.git "$GSTACK_DIR" \
-      || die 'gstack clone failed'
-    # --branch does not take a SHA; land on it explicitly when the ref was one.
-    if [ "$GSTACK_REF" != main ] \
-       && [ "$(git -C "$GSTACK_DIR" rev-parse HEAD)" != "$GSTACK_REF" ]; then
-      git -C "$GSTACK_DIR" fetch --quiet --depth 1 origin "$GSTACK_REF" \
-        && git -C "$GSTACK_DIR" reset --quiet --hard FETCH_HEAD \
-        || warn "could not pin to '$GSTACK_REF' — staying on default branch"
-    fi
+    git init --quiet "$GSTACK_DIR" || die 'git init failed'
+    git -C "$GSTACK_DIR" remote add origin https://github.com/garrytan/gstack.git \
+      || die 'could not add gstack remote'
   fi
-  log "gstack at $(git -C "$GSTACK_DIR" rev-parse --short HEAD)"
+
+  git -C "$GSTACK_DIR" fetch --quiet --depth 1 origin "$expected" \
+    || die "could not fetch gstack SHA $expected"
+  git -C "$GSTACK_DIR" checkout --quiet -f --detach FETCH_HEAD \
+    || die "could not checkout gstack SHA $expected"
+
+  actual="$(git -C "$GSTACK_DIR" rev-parse HEAD)"
+  [ "$actual" = "$expected" ] \
+    || die "gstack HEAD $actual != pinned $expected"
+  log "gstack at $actual"
 }
 
 # ── registration ───────────────────────────────────────────────────────────
@@ -162,6 +256,8 @@ verify_browser() {
 # ── run ────────────────────────────────────────────────────────────────────
 command -v git >/dev/null 2>&1 || die 'git is required'
 command -v node >/dev/null 2>&1 || die 'node is required'
+command -v curl >/dev/null 2>&1 || die 'curl is required'
+command -v sha256sum >/dev/null 2>&1 || die 'sha256sum is required'
 
 ensure_bun
 fetch_gstack

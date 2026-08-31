@@ -13,7 +13,7 @@ Florian's public engineering standards. Single source of truth for commit messag
 
 ### Cloud agent environments
 
-- **[cloud/install-gstack.sh](cloud/install-gstack.sh)** — Installs [gstack](https://github.com/garrytan/gstack) on a headless cloud box so its `/gstack-*` skills exist for the claude, codex, and cursor hosts. Meant for Conductor's Cloud Computer "Install software" script, which is the only hook that reaches cloud workspaces — `~/.claude` never syncs from the Mac, files-to-copy is Mac-only, and `scripts.setup` in `.conductor/settings.toml` does not run in cloud. Idempotent, so it doubles as a repair/update inside a live workspace.
+- **[cloud/install-gstack.sh](cloud/install-gstack.sh)** — Installs [gstack](https://github.com/garrytan/gstack) on a headless cloud box so its `/gstack-*` skills exist for the claude, codex, and cursor hosts. Meant for Conductor's Cloud Computer "Install software" script, which is the only hook that reaches cloud workspaces — `~/.claude` never syncs from the Mac, files-to-copy is Mac-only, and `scripts.setup` in `.conductor/settings.toml` does not run in cloud. Pins gstack to a 40-char commit SHA (fail closed) and installs bun from a SHA256-pinned GitHub release rather than `curl | bash`. Idempotent, so it doubles as a repair/update inside a live workspace.
 
 ### HA app docs standard
 
