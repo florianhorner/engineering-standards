@@ -40,7 +40,7 @@
 #   2026-08-31: pin gstack to a full SHA (fail closed); install bun from GitHub
 #               releases with a baked SHA256 instead of curl|bash.
 
-set -uo pipefail
+set -euo pipefail
 
 log()  { printf '[install-gstack] %s\n' "$*"; }
 warn() { printf '[install-gstack] WARN: %s\n' "$*" >&2; }
@@ -206,13 +206,21 @@ register_hosts() {
   for host in $GSTACK_HOSTS; do
     log "registering skills for host '$host' ..."
     if [ "$host" = claude ]; then
-      (cd "$GSTACK_DIR" && ./setup --prefix --no-team -q); rc=$?
+      if (cd "$GSTACK_DIR" && ./setup --prefix --no-team -q); then
+        :
+      else
+        rc=$?
+        warn "setup failed for host '$host' (exit $rc)"
+        failed=1
+      fi
     else
-      (cd "$GSTACK_DIR" && ./setup --prefix --no-team -q --host "$host"); rc=$?
-    fi
-    if [ "$rc" -ne 0 ]; then
-      warn "setup failed for host '$host' (exit $rc)"
-      failed=1
+      if (cd "$GSTACK_DIR" && ./setup --prefix --no-team -q --host "$host"); then
+        :
+      else
+        rc=$?
+        warn "setup failed for host '$host' (exit $rc)"
+        failed=1
+      fi
     fi
   done
   [ "$failed" -eq 0 ] || die 'at least one host failed to register'
