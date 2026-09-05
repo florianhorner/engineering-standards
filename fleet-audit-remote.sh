@@ -64,18 +64,29 @@ readonly ISSUE_LABEL="fleet-audit"
 
 FILE_ISSUE=0
 JSON_PATH=""
+
+# Both --json spellings fail the same way on an empty path. Silently accepting
+# `--json=` would leave JSON_PATH empty, skip the emitter below, and still exit
+# 0 — a caller that asked for the artifact would get a green run and no file.
+json_path_required() {
+  printf '%s\n' 'FAIL --json requires a non-empty path argument' >&2
+  exit 1
+}
+
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --github-issue) FILE_ISSUE=1 ;;
     --json)
       shift
-      if [ "$#" -eq 0 ]; then
-        printf '%s\n' 'FAIL --json requires a path argument' >&2
-        exit 1
+      if [ "$#" -eq 0 ] || [ -z "$1" ]; then
+        json_path_required
       fi
       JSON_PATH="$1"
       ;;
-    --json=*) JSON_PATH="${1#--json=}" ;;
+    --json=*)
+      JSON_PATH="${1#--json=}"
+      [ -n "$JSON_PATH" ] || json_path_required
+      ;;
     -h|--help)
       printf 'Usage: bash fleet-audit-remote.sh [--github-issue] [--json PATH]\n'
       exit 0
@@ -275,6 +286,12 @@ upstream_sha, out_path = sys.argv[1], sys.argv[2]
 # Policy mirrors fleet-audit.sh note 5. Order matters: the OWN+MISSING
 # allow-case is tested first, so every other combination falls through to a
 # block reason and nothing is remediable by default.
+#
+# FRESH is tested before OWN-FORK deliberately. Both are correct for a fresh
+# fork and neither is remediable, but "sha_pin already matches upstream" is
+# the actionable state; "a fork needs a human on the diff" would imply there
+# is a diff to look at. The remediable flag is what the consumer reads, and
+# it is false either way.
 def classify(bucket, status):
     if bucket == "OWN" and status.startswith("MISSING"):
         return True, ""
@@ -330,7 +347,10 @@ with open(out_path, "w", encoding="utf-8") as fh:
     json.dump(report, fh, indent=2, ensure_ascii=False)
     fh.write("\n")
 
-print("Wrote %s (%d repo(s), %d remediable)" % (out_path, len(repos), remediable_count))
+# stderr, not stdout: stdout carries the markdown report verbatim and callers
+# capture it. --json adds a file, never a line to that report.
+print("Wrote %s (%d repo(s), %d remediable)" % (out_path, len(repos), remediable_count),
+      file=sys.stderr)
 ' "$UPSTREAM_SHA" "$JSON_PATH"
 fi
 
