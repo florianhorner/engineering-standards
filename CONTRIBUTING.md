@@ -74,7 +74,7 @@ PR bodies, issue bodies and changelogs carry **no** footer naming the tool that 
 
 Provenance belongs in commit trailers instead:
 
-```
+```text
 Co-Authored-By: <agent name> <noreply@example.com>
 ```
 
