@@ -196,6 +196,10 @@ cat ~/.commit-bypass.log
 
 Detection and remediation are deliberately split, and only detection is autonomous.
 
+**Scope:** this audit checks commit-standards installation and pins, not project priorities, PR blockers, or next actions. It enumerates at most 200 repositories visible to the supplied token. The scheduled workflow uses the repository-scoped `GITHUB_TOKEN`, which cannot inspect other private repositories; omitted repositories are not evidence of compliance. See [GitHub token permissions](https://docs.github.com/en/actions/concepts/security/github_token). No credential expansion is part of this workflow.
+
+**Failed reads are not missing files.** HTTP 403/429/5xx, transport failures, invalid file responses, malformed inventories, and invalid `sha_pin` metadata stop the audit with a nonzero exit before a new JSON report or issue is published. Only a file-level 404 followed by a successful root contents listing establishes absence. This keeps access failures out of the `remediable` target set. Consumers must require a successful audit run; an older artifact is not a substitute for a failed run.
+
 | Phase | Runs as | Cadence | Writes |
 |---|---|---|---|
 | 1 — detect | `fleet-audit-monthly.yml` (GitHub Actions) | monthly, 08:07 UTC on the 1st | issue in this repo + `fleet-audit-report` artifact |

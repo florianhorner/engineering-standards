@@ -6,10 +6,9 @@
 # ~/conductor/workspaces — that only works because it runs on Florian's own
 # machine. A GitHub Actions cloud routine (or any hosted runner) has no
 # filesystem access to those paths, full stop. This script instead enumerates
-# every repo Florian actually owns via `gh repo list florianhorner`, which is
-# MORE complete than the local walk for this specific question ("is the
-# fleet compliant") since it also catches repos he owns but hasn't cloned to
-# this machine.
+# token-visible repos via `gh repo list florianhorner` (limit 200), including
+# repos without a local checkout. This is NOT proof of full-fleet coverage:
+# the scheduled GITHUB_TOKEN cannot read other private repositories.
 #
 # Bucket model is simpler here than in fleet-audit.sh: `gh repo list
 # florianhorner` only ever returns repos florianhorner owns or has direct
@@ -125,13 +124,41 @@ fi
 
 # ---------------------------------------------------------------------------
 # Fetches a file's contents from a repo's DEFAULT branch via the GitHub API.
-# Prints decoded file contents to stdout, or nothing + non-zero exit if the
-# file doesn't exist / repo inaccessible.
+# Prints decoded nonempty file contents, or nothing on confirmed absence.
+# Any uncertain read fails the entire audit before JSON or issue publication.
+# A 404 alone is ambiguous (GitHub also hides inaccessible resources): require
+# a successful root contents listing before treating the file as missing.
 # ---------------------------------------------------------------------------
 gh_default_branch_file() {
-  local name_with_owner="$1" path="$2"
-  gh api "repos/${name_with_owner}/contents/${path}" --jq '.content' 2>/dev/null \
-    | tr -d '\n' | base64 --decode 2>/dev/null
+  local name_with_owner="$1" path="$2" response status_line root_contents
+  if response="$(gh api "repos/${name_with_owner}/contents/${path}" --include 2>/dev/null)"; then
+    printf '%s' "$response" | python3 -c '
+import base64, json, sys
+try:
+    _, separator, body = sys.stdin.read().replace("\r\n", "\n").partition("\n\n")
+    if not separator:
+        raise ValueError("missing response headers")
+    payload = json.loads(body)
+    if payload["type"] != "file" or payload["encoding"] != "base64":
+        raise ValueError("not an encoded file")
+    content = base64.b64decode("".join(payload["content"].split()), validate=True).decode("utf-8")
+    if not content.strip():
+        raise ValueError("empty file")
+    sys.stdout.write(content)
+except (ValueError, KeyError, TypeError, AttributeError):
+    sys.exit("FAIL invalid or empty file response; audit stopped")
+'
+    return
+  fi
+  status_line="${response%%$'\n'*}"
+  if [[ "$status_line" =~ ^HTTP/[0-9.]+[[:space:]]404([[:space:]]|$) ]]; then
+    if root_contents="$(gh api "repos/${name_with_owner}/contents" 2>/dev/null)" &&
+       printf '%s' "$root_contents" | python3 -c 'import json,sys; sys.exit(0 if isinstance(json.load(sys.stdin), list) else 1)' 2>/dev/null; then
+      return 0
+    fi
+  fi
+  printf 'FAIL cannot verify %s/%s; audit stopped (not MISSING)\n' "$name_with_owner" "$path" >&2
+  return 1
 }
 
 # ---------------------------------------------------------------------------
@@ -139,6 +166,25 @@ gh_default_branch_file() {
 # filesystem walk.
 # ---------------------------------------------------------------------------
 REPO_LIST_JSON="$(gh repo list florianhorner --limit 200 --json nameWithOwner,isFork,parent,isArchived)"
+
+# Parse before entering the loop: process-substitution failures otherwise get
+# lost, allowing an incomplete inventory to produce a successful report.
+REPO_ROWS="$(printf '%s' "$REPO_LIST_JSON" | python3 -c '
+import json, re, sys
+try:
+    repos = json.load(sys.stdin)
+    if not isinstance(repos, list):
+        raise ValueError("not a repository list")
+    for r in repos:
+        name = r["nameWithOwner"]
+        if not isinstance(name, str) or not re.fullmatch(r"florianhorner/[A-Za-z0-9_.-]+", name):
+            raise ValueError("unexpected repository owner or name")
+        if not isinstance(r["isFork"], bool) or not isinstance(r["isArchived"], bool):
+            raise ValueError("invalid repository flags")
+        print(name + "\t" + str(r["isFork"]).lower() + "\t" + str(r["isArchived"]).lower())
+except (ValueError, KeyError, TypeError):
+    sys.exit("FAIL invalid repository inventory; audit stopped")
+')"
 
 # ---------------------------------------------------------------------------
 # Classify each repo. Rows: nameWithOwner|bucket|status|detail
@@ -156,24 +202,29 @@ while IFS=$'\t' read -r name_with_owner is_fork is_archived; do
   bucket="OWN"
   [ "$is_fork" = "true" ] && bucket="OWN-FORK"
 
-  workflow_contents="$(gh_default_branch_file "$name_with_owner" "$CI_WORKFLOW_PATH" || true)"
+  workflow_contents="$(gh_default_branch_file "$name_with_owner" "$CI_WORKFLOW_PATH")"
 
   if [ -z "$workflow_contents" ]; then
     ROWS+=("${name_with_owner}|${bucket}|MISSING|no ${CI_WORKFLOW_PATH} on default branch")
     continue
   fi
 
-  meta_contents="$(gh_default_branch_file "$name_with_owner" "$META_PATH" || true)"
+  meta_contents="$(gh_default_branch_file "$name_with_owner" "$META_PATH")"
   if [ -z "$meta_contents" ]; then
     ROWS+=("${name_with_owner}|${bucket}|MISSING|${CI_WORKFLOW_PATH} exists but no ${META_PATH} — can't determine freshness")
     continue
   fi
 
-  pinned_sha="$(printf '%s' "$meta_contents" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("sha_pin",""))' 2>/dev/null || true)"
-  if [ -z "$pinned_sha" ]; then
-    ROWS+=("${name_with_owner}|${bucket}|MISSING|${META_PATH} exists but has no parseable sha_pin field")
-    continue
-  fi
+  pinned_sha="$(printf '%s' "$meta_contents" | python3 -c '
+import json, re, sys
+try:
+    sha = json.load(sys.stdin)["sha_pin"]
+    if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{40}", sha):
+        raise ValueError("invalid sha_pin")
+    print(sha)
+except (ValueError, KeyError, TypeError):
+    sys.exit("FAIL invalid commit-rules metadata; audit stopped (not MISSING)")
+')"
 
   if [ "$pinned_sha" = "$UPSTREAM_SHA" ]; then
     ROWS+=("${name_with_owner}|${bucket}|FRESH|sha_pin @ ${pinned_sha:0:7} matches upstream main")
@@ -198,14 +249,7 @@ except Exception:
   [ "$age_days" != "?" ] && detail="${detail}, meta.json fetched_at is ${age_days}d old"
   ROWS+=("${name_with_owner}|${bucket}|STALE(${age_days}d)|${detail}")
 
-done < <(printf '%s' "$REPO_LIST_JSON" | python3 -c '
-import json, sys
-for r in json.load(sys.stdin):
-    name = r["nameWithOwner"]
-    is_fork = str(r["isFork"]).lower()
-    is_archived = str(r["isArchived"]).lower()
-    print(name + "\t" + is_fork + "\t" + is_archived)
-')
+done <<< "$REPO_ROWS"
 
 # ---------------------------------------------------------------------------
 # Also flag engineering-standards itself if MISSING — it's the SSOT and
@@ -260,6 +304,8 @@ REPORT="$(cat <<EOF
 ${SUMMARY_LINE}
 
 ${TABLE}
+
+_Coverage: token-visible repositories only (limit 200); not proof of full-fleet coverage. The scheduled token cannot inspect other private repositories._
 
 _Report-only. This workflow never writes to any other repo. To fix a finding, run \`bootstrap-repo.sh\` locally (see fleet-audit.sh --apply) or ask Claude Code to do it in a local session._
 EOF
