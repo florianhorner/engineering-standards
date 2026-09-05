@@ -37,4 +37,17 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-        run: bash fleet-audit-remote.sh --github-issue
+        run: bash fleet-audit-remote.sh --github-issue --json fleet-audit.json
+
+      # The remediation phase reads THIS artifact, never the issue thread.
+      # Issue comments are writable by anyone who can comment on the repo; a
+      # run artifact is written only by this workflow and is immutable once
+      # the run completes. That difference is the whole reason the artifact
+      # exists — see the header note in fleet-audit-remote.sh.
+      - name: Upload machine-readable report
+        uses: actions/upload-artifact@v4
+        with:
+          name: fleet-audit-report
+          path: fleet-audit.json
+          retention-days: 90
+          if-no-files-found: error
