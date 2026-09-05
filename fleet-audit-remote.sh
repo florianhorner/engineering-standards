@@ -26,9 +26,28 @@
 # something, fixing it is a separate, human-initiated action (either by hand
 # or via `fleet-audit.sh --apply` run locally).
 #
+# --json emits the same classification as a machine-readable artifact, and is
+# the ONLY input a remediation agent should ever read. Rationale: the markdown
+# report is delivered as a GitHub issue body plus follow-up COMMENTS, and
+# anyone who can comment on that issue can append text that looks exactly like
+# a report row. An agent that parses the issue thread to decide which repos to
+# push to is therefore taking instructions from an attacker-writable surface.
+# A workflow-run artifact is written only by this workflow and cannot be
+# appended to after the fact.
+#
+# The per-repo `remediable` flag in that JSON is decided HERE, in code, not by
+# whatever reads it. It encodes fleet-audit.sh's note-5 policy verbatim:
+# only bucket OWN + status MISSING is auto-fixable; OWN-FORK never is (forks
+# carry AUTHOR-NOTES.md and upstream-tracking concerns), STALE never is for
+# any bucket (a SHA-pin refresh changes what CI enforces, so it stays a
+# deliberate visible action), and archived repos never enter the report at
+# all. Keeping that decision in the script means an agent consuming the
+# artifact has no policy left to interpret — it filters on a boolean.
+#
 # Usage:
 #   bash fleet-audit-remote.sh                  # print markdown table to stdout
 #   bash fleet-audit-remote.sh --github-issue    # also file/update the GH issue
+#   bash fleet-audit-remote.sh --json PATH       # also write the JSON artifact
 #
 # Env (only read when --github-issue is passed):
 #   GITHUB_REPOSITORY   owner/repo to file the issue against (set by Actions)
@@ -44,19 +63,35 @@ readonly META_PATH=".config/commit-rules.meta.json"
 readonly ISSUE_LABEL="fleet-audit"
 
 FILE_ISSUE=0
-for arg in "$@"; do
-  case "$arg" in
+JSON_PATH=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
     --github-issue) FILE_ISSUE=1 ;;
+    --json)
+      shift
+      if [ "$#" -eq 0 ]; then
+        printf '%s\n' 'FAIL --json requires a path argument' >&2
+        exit 1
+      fi
+      JSON_PATH="$1"
+      ;;
+    --json=*) JSON_PATH="${1#--json=}" ;;
     -h|--help)
-      printf 'Usage: bash fleet-audit-remote.sh [--github-issue]\n'
+      printf 'Usage: bash fleet-audit-remote.sh [--github-issue] [--json PATH]\n'
       exit 0
       ;;
     *)
-      printf 'Unknown argument: %s (use --github-issue or --help)\n' "$arg" >&2
+      printf 'Unknown argument: %s (use --github-issue, --json PATH, or --help)\n' "$1" >&2
       exit 1
       ;;
   esac
+  shift
 done
+
+if [ -n "$JSON_PATH" ] && [ -d "$JSON_PATH" ]; then
+  printf 'FAIL --json path is a directory, not a file: %s\n' "$JSON_PATH" >&2
+  exit 1
+fi
 
 if ! command -v gh >/dev/null 2>&1; then
   printf 'FAIL gh CLI not installed.\n' >&2
@@ -223,6 +258,80 @@ printf '%s\n' "$REPORT"
 
 if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
   printf '%s\n' "$REPORT" >> "$GITHUB_STEP_SUMMARY"
+fi
+
+# ---------------------------------------------------------------------------
+# Machine-readable artifact. See the header note: this, not the issue thread,
+# is what a remediation agent reads, and `remediable` is decided here rather
+# than by the consumer.
+# ---------------------------------------------------------------------------
+if [ -n "$JSON_PATH" ]; then
+  printf '%s\n' "${SORTED_ROWS[@]}" | python3 -c '
+import json, sys
+from datetime import datetime, timezone
+
+upstream_sha, out_path = sys.argv[1], sys.argv[2]
+
+# Policy mirrors fleet-audit.sh note 5. Order matters: the OWN+MISSING
+# allow-case is tested first, so every other combination falls through to a
+# block reason and nothing is remediable by default.
+def classify(bucket, status):
+    if bucket == "OWN" and status.startswith("MISSING"):
+        return True, ""
+    if status.startswith("FRESH"):
+        return False, "FRESH — sha_pin already matches upstream, nothing to remediate"
+    if bucket == "OWN-FORK":
+        return False, "OWN-FORK — AUTHOR-NOTES.md and upstream-tracking concerns need a human on the diff"
+    if status.startswith("STALE"):
+        return False, "STALE — a SHA-pin refresh changes what CI enforces; deliberate action, never automated"
+    return False, "unrecognized status — not eligible"
+
+repos, remediable_count = [], 0
+for line in sys.stdin.read().splitlines():
+    if not line.strip():
+        continue
+    name, bucket, status, detail = line.split("|", 3)
+    remediable, block_reason = classify(bucket, status)
+    remediable_count += remediable
+    repos.append({
+        "name_with_owner": name,
+        "bucket": bucket,
+        "status": status,
+        "detail": detail,
+        "remediable": remediable,
+        "remediation_block_reason": block_reason,
+    })
+
+report = {
+    "schema_version": "1.0.0",
+    "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "upstream_sha": upstream_sha,
+    "policy": {
+        "source": "fleet-audit.sh note 5",
+        "auto_remediable": "bucket OWN + status MISSING",
+        "never_auto": [
+            "OWN-FORK (any status)",
+            "STALE (any bucket)",
+            "archived repos (excluded from the report entirely)",
+        ],
+        "consumer_contract": "act only on repos where remediable is true; open draft PRs only; never merge",
+    },
+    "summary": {
+        "total": len(repos),
+        "missing": sum(1 for r in repos if r["status"].startswith("MISSING")),
+        "stale": sum(1 for r in repos if r["status"].startswith("STALE")),
+        "fresh": sum(1 for r in repos if r["status"].startswith("FRESH")),
+        "remediable": remediable_count,
+    },
+    "repos": repos,
+}
+
+with open(out_path, "w", encoding="utf-8") as fh:
+    json.dump(report, fh, indent=2, ensure_ascii=False)
+    fh.write("\n")
+
+print("Wrote %s (%d repo(s), %d remediable)" % (out_path, len(repos), remediable_count))
+' "$UPSTREAM_SHA" "$JSON_PATH"
 fi
 
 if [ "$FILE_ISSUE" -eq 0 ]; then
