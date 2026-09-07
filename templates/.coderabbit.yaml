@@ -1,0 +1,31 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# BEGIN: engineering-standards-coderabbit
+#
+# Durable CodeRabbit auto-review settings for Florian's fleet.
+# Bootstrap copies this file into a consumer repo when `.coderabbit.yaml`
+# is missing; it will not clobber a hand-written file that lacks these
+# markers. Re-run bootstrap-repo.sh to refresh a marked copy.
+#
+# This yaml is the durable copy. The CodeRabbit *org dashboard* is the live
+# kill for incrementals on mammamiradio today — an agent cannot click that
+# UI. After installing this file, flip the org UI (incrementals off,
+# Dependabot ignored) so Fair Usage stops burning on every push.
+#
+# Do not turn auto-review fully off. First reviews on open/ready must keep
+# happening without the leftover dispatcher. Do not add a label-only gate
+# here: that would starve first reviews until someone clicks org UI.
+#
+# Keys: https://docs.coderabbit.ai/configuration/auto-review
+#
+reviews:
+  auto_review:
+    enabled: true
+    auto_incremental_review: false
+    auto_pause_after_reviewed_commits: 1
+    drafts: false
+    ignore_usernames:
+      - dependabot[bot]
+      - renovate[bot]
+      - github-actions[bot]
+      - pre-commit-ci[bot]
+# END: engineering-standards-coderabbit

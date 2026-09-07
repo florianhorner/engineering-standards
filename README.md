@@ -9,7 +9,8 @@ Florian's public engineering standards. Single source of truth for commit messag
 - **[docs/commit-system-operator.md](docs/commit-system-operator.md)** — How to bootstrap a repo, normal flow, override flow, troubleshooting.
 - **[.github/workflows/commit-lint-reusable.yml](.github/workflows/commit-lint-reusable.yml)** — Content-addressed, read-only reusable workflow consumer repos call via an exact-SHA `uses:` pin.
 - **[validator/](validator/)** — Python hook generator (`generate-hook.py`) that emits the `commit-msg` hook from `specs/commit-rules.json`.
-- **[templates/](templates/)** — Drop-in files the bootstrap script copies into consumer repos.
+- **[templates/](templates/)** — Drop-in files the bootstrap script copies into consumer repos, including the CodeRabbit auto-review yaml (first review on, incrementals off).
+- **[specs/coderabbit-dispatch-spec.md](specs/coderabbit-dispatch-spec.md)** — Shadow leftover dispatcher: at most one later CodeRabbit review per hour when the 7-day included count is known and under 35.
 
 ### HA app docs standard
 
@@ -36,6 +37,19 @@ bash fleet-audit.sh --apply
 ```
 
 **Convention:** since there's no single canonical repo-creation entrypoint to hook this into automatically yet, run `fleet-audit.sh --apply` manually right after `gh repo create` for any brand-new repo.
+
+## CodeRabbit leftover dispatcher (shadow)
+
+Team Fair Usage is per developer and does not bank unused hourly slots. Shotgun auto-incrementals on every push burn the 7-day window; other repos starve. This repo hosts a **central, report-only** hourly job that ranks at most one later review across Florian's owned non-forks plus allowlisted forks (`lightener-studio`, `govee2mqtt-extended`).
+
+- First reviews stay automatic via CodeRabbit (`reviews.auto_review.enabled: true`). Incrementals are not automatic.
+- Shadow only: job summary. No comments, no labels, no GitHub App, no writes to other repos, no hourly issues.
+- 7-day ceiling 35 included reviews; fail closed if the count cannot be read. Does not spend leftover hourly slots just because they exist.
+- Kill switches: delete `.github/coderabbit-dispatch.enabled`, or set repository variable `CODERABBIT_DISPATCH` to literal `0`.
+
+**[specs/coderabbit-dispatch-spec.md](specs/coderabbit-dispatch-spec.md)** is the locked product. Run `bash coderabbit-dispatch-remote.sh` (needs `gh`). Tests: `python3 -m unittest discover -s tests -p 'test_*.py'`.
+
+`templates/.coderabbit.yaml` is the durable fleet copy (incrementals off, Dependabot ignored, drafts off, first review still on). Bootstrap installs it into a consumer when that repo has no unmarked hand-written file. **The CodeRabbit org dashboard is the live kill for incrementals on mammamiradio today** — an agent cannot click that UI. Yaml without the org click is not enough while org UI still has shotgun incrementals on. Do not turn auto-review fully off and do not add a label-only gate that would starve first reviews.
 
 ## Why a public repo
 
