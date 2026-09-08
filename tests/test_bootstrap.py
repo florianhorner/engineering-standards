@@ -49,7 +49,7 @@ class BootstrapTests(unittest.TestCase):
         self.env["TEST_CALLS"] = str(self.calls)
         gh = self.bin / "gh"
         gh.write_text('''#!/usr/bin/env python3
-import json, os, sys
+import json, os, subprocess, sys
 from pathlib import Path
 args = sys.argv[1:]
 with open(os.environ["TEST_CALLS"], "a") as f: f.write(json.dumps(args) + "\\n")
@@ -69,6 +69,9 @@ elif args[:1] == ["api"] and len(args) == 4:
     sys.exit(1)
 elif args[:1] == ["api"] and len(args) == 2 and "/contents/" in args[1]:
     if os.environ.get("TEST_SOURCE_FAIL"): sys.exit(1)
+    if os.environ.get("TEST_SWITCH_BRANCH"):
+        subprocess.run(["git", "switch", os.environ["TEST_SWITCH_BRANCH"]],
+                       capture_output=True, check=True)
     print(json.dumps({"type": "file", "sha": "b" * 40}))
 else:
     sys.exit(99)
@@ -124,8 +127,25 @@ else:
         self.view["defaultBranchRef"]["name"] = "main"
         self.git("switch", "main")
         self.assert_unchanged(self.invoke(), "")
+
+    def test_detached_head_reports_branch_error_before_network_reads(self):
         self.git("switch", "--detach")
-        self.assert_unchanged(self.invoke(), "")
+        result = self.invoke()
+        self.assert_unchanged(result, "")
+        self.assertIn("Detached HEAD", result.stderr)
+        self.assertNotIn("repository access", result.stderr)
+        self.assertFalse(self.calls.exists())
+
+    def test_branch_changes_during_preflight_stop_before_writes(self):
+        self.git("branch", "other-feature")
+        for target in ("--detach", "other-feature"):
+            with self.subTest(target=target):
+                self.git("switch", "adopt-policy")
+                self.env["TEST_SWITCH_BRANCH"] = target
+                result = self.invoke()
+                self.assert_unchanged(result, "")
+                self.assertIn("Branch changed during preflight", result.stderr)
+                self.assertNotIn("repository access", result.stderr)
 
     def test_dirty_tree(self):
         (self.repo / "owned-work.txt").write_text("preserve")

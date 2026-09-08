@@ -28,6 +28,17 @@ def run(*args):
     return result.stdout.strip()
 
 
+def current_branch():
+    result = subprocess.run(
+        ["git", "symbolic-ref", "--quiet", "--short", "HEAD"],
+        capture_output=True, text=True, check=False)
+    if result.returncode == 1:
+        return None  # Detached HEAD is a local branch state, not an access failure.
+    if result.returncode:
+        raise ValueError("Could not read current branch")
+    return result.stdout.strip()
+
+
 def safe_path(root, relative):
     candidate = root / relative
     for part in (candidate, *candidate.parents):
@@ -135,7 +146,9 @@ def main():
     os.chdir(root)
     if Path(run("git", "rev-parse", "--show-toplevel")).resolve() != root:
         raise ValueError("Target must be the repository root")
-    branch = run("git", "symbolic-ref", "--quiet", "--short", "HEAD")
+    branch = current_branch()
+    if not branch:
+        raise ValueError("Detached HEAD; use an isolated feature branch")
     if branch in ("main", "master"):
         raise ValueError("Use an isolated feature branch, never main or master")
     if run("git", "status", "--porcelain", "--untracked-files=all"):
@@ -163,7 +176,7 @@ def main():
     if not isinstance(source, dict) or source.get("type") != "file" or not source.get("sha"):
         raise ValueError("Pinned source workflow is unavailable")
     # Recheck local state after the network calls.
-    if run("git", "symbolic-ref", "--quiet", "--short", "HEAD") != branch:
+    if current_branch() != branch:
         raise ValueError("Branch changed during preflight")
     if run("git", "status", "--porcelain", "--untracked-files=all"):
         raise ValueError("Working tree changed during preflight")
