@@ -4,7 +4,9 @@
 # Durable CodeRabbit auto-review settings for Florian's fleet.
 # Bootstrap copies this file into a consumer repo when `.coderabbit.yaml`
 # is missing; it will not clobber a hand-written file that lacks these
-# markers. Re-run bootstrap-repo.sh to refresh a marked copy.
+# markers. These markers are a provenance stamp, not a section boundary:
+# re-running bootstrap-repo.sh replaces a stamped file WHOLESALE. Delete the
+# `# BEGIN:` line below to pin a repo's own copy against future refreshes.
 #
 # This yaml is the durable copy. The CodeRabbit *org dashboard* is the live
 # kill for incrementals on mammamiradio today — an agent cannot click that

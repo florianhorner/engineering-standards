@@ -391,6 +391,18 @@ import json, os, sys
 from pathlib import Path
 fx = Path(os.environ["CR_DISPATCH_FIXTURES"])
 
+# Every invocation is logged so tests can assert the request shape (no
+# comments/reviews fetched for pre-filtered PRs), and a repo can be made to
+# fail so tests can assert per-repo isolation.
+log = os.environ.get("CR_DISPATCH_CALL_LOG")
+if log:
+    with open(log, "a") as fh:
+        fh.write(" ".join(sys.argv[1:]) + "\n")
+fail_repo = os.environ.get("CR_DISPATCH_FAIL_REPO", "")
+if fail_repo and fail_repo in " ".join(sys.argv[1:]):
+    sys.stderr.write("HTTP 403: Resource not accessible by integration\n")
+    raise SystemExit(1)
+
 def out(path: Path):
     if not path.is_file():
         sys.stdout.write("[]\n")
@@ -515,6 +527,95 @@ class ShellIntegrationTest(unittest.TestCase):
         self.assertIn("draft", proc.stdout)
         self.assertIn("non-allowlisted fork", proc.stdout)
 
+    def _fleet_fixtures(self, root):
+        fx = root / "fixtures"
+        (fx / "prs").mkdir(parents=True)
+        (fx / "comments").mkdir()
+        (fx / "reviews").mkdir()
+        (fx / "repos.json").write_text(
+            json_dumps([repo("tools"), repo("core", fork=True), repo("blocked")])
+        )
+        (fx / "prs" / "florianhorner_tools.json").write_text(
+            json_dumps(
+                [
+                    pr(1, author="dependabot[bot]", is_bot=True, user_type="Bot"),
+                    pr(2, draft=True, head=HEAD_B),
+                    pr(3, head=HEAD_C, created="2026-09-03T00:00:00Z"),
+                ]
+            )
+        )
+        (fx / "prs" / "florianhorner_core.json").write_text(json_dumps([pr(8, head=HEAD_A)]))
+        (fx / "prs" / "florianhorner_blocked.json").write_text(json_dumps([pr(5, head=HEAD_A)]))
+        budget = json_dumps([comment(GOOD_BUDGET)])
+        for key in (
+            "florianhorner_tools_1",
+            "florianhorner_tools_2",
+            "florianhorner_tools_3",
+            "florianhorner_core_8",
+            "florianhorner_blocked_5",
+        ):
+            (fx / "comments" / f"{key}.json").write_text(budget)
+            (fx / "reviews" / f"{key}.json").write_text("[]\n")
+        return fx
+
+    def _shim(self, root):
+        bindir = root / "bin"
+        bindir.mkdir()
+        gh = bindir / "gh"
+        gh.write_text(GH_SHIM.lstrip())
+        os.chmod(gh, os.stat(gh).st_mode | stat.S_IEXEC)
+        return bindir
+
+    def _run_shell(self, root, bindir, fx, **extra):
+        env = {
+            **os.environ,
+            "PATH": str(bindir) + os.pathsep + os.environ.get("PATH", ""),
+            "CODERABBIT_DISPATCH_ROOT": str(root),
+            "CR_DISPATCH_FIXTURES": str(fx),
+            "CODERABBIT_DISPATCH": "1",
+            **extra,
+        }
+        return subprocess.run(
+            ["bash", str(root / "coderabbit-dispatch-remote.sh")],
+            check=False,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+
+    def test_shell_isolates_one_failing_repo(self):
+        """A 403 on one repo used to abort the tick and print nothing at all."""
+        root = self._tree(enabled=True)
+        fx = self._fleet_fixtures(root)
+        bindir = self._shim(root)
+        proc = self._run_shell(
+            root, bindir, fx, CR_DISPATCH_FAIL_REPO="florianhorner/blocked"
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+        self.assertIn("**Outcome:** `WOULD_REVIEW`", proc.stdout)
+        self.assertIn("florianhorner/tools", proc.stdout)
+        self.assertIn("## Partial data", proc.stdout)
+        self.assertIn("florianhorner/blocked", proc.stdout)
+        self.assertIn("403", proc.stdout)
+
+    def test_shell_does_not_fetch_comments_for_prefiltered_prs(self):
+        """Two requests per PR x every open PR on ~200 repos is the fan-out risk."""
+        root = self._tree(enabled=True)
+        fx = self._fleet_fixtures(root)
+        bindir = self._shim(root)
+        log = root / "calls.log"
+        proc = self._run_shell(root, bindir, fx, CR_DISPATCH_CALL_LOG=str(log))
+        self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+        calls = log.read_text().splitlines()
+        api = [c for c in calls if c.startswith("api ")]
+        # Only tools#3 and blocked#5 are eligible: 2 PRs x (comments + reviews).
+        self.assertEqual(len(api), 4, "\n".join(api))
+        for skipped in ("tools/issues/1", "tools/issues/2", "core/issues/8"):
+            self.assertFalse(
+                [c for c in api if skipped in c], f"fetched comments for {skipped}"
+            )
+        self.assertTrue([c for c in api if "per_page=100" in c], "\n".join(api))
+
     def test_bootstrap_vendors_coderabbit_template(self):
         text = (ROOT / "bootstrap-repo.sh").read_text(encoding="utf-8")
         self.assertIn("templates/.coderabbit.yaml", text)
@@ -526,6 +627,149 @@ class ShellIntegrationTest(unittest.TestCase):
         self.assertIn("drafts: false", tmpl)
         self.assertIn("dependabot[bot]", tmpl)
         self.assertNotIn("review-ready", tmpl)
+
+
+class BudgetCarryForwardTest(unittest.TestCase):
+    """The 7-day integer must survive a newer footer that omits it.
+
+    CodeRabbit posts two footer shapes and only one carries the integer. Taking
+    the newest budget-bearing comment wholesale meant a single #1114-shaped
+    footer anywhere in the fleet pinned every later tick to BUDGET_HELD, so the
+    ranking never ran. Carry-forward is bounded, not unconditional.
+    """
+
+    def _report(self, older_when: str, newer_when: str = "2026-09-07T12:00:00Z"):
+        return run(
+            [repo("tools")],
+            {"florianhorner/tools": [pr(3, head=HEAD_C)]},
+            {
+                ("florianhorner/tools", 3): [
+                    comment(GOOD_BUDGET, when=older_when),
+                    comment(FOOTER_1114, when=newer_when),
+                ]
+            },
+        )
+
+    def test_carry_forward_unlocks_when_newest_footer_omits_count(self):
+        report = self._report("2026-09-07T09:00:00Z")
+        self.assertEqual(report.budget.seven_day, 22)
+        self.assertTrue(report.budget.seven_day_is_carried)
+        self.assertAlmostEqual(report.budget.seven_day_age_hours, 3.0, places=3)
+        self.assertEqual(report.outcome, crd.OUTCOME_WOULD_REVIEW)
+        self.assertEqual(len(would_review(report)), 1)
+
+    def test_carry_forward_refused_outside_window(self):
+        report = self._report("2026-09-05T12:00:00Z")  # 48h older
+        self.assertIsNone(report.budget.seven_day)
+        self.assertEqual(report.outcome, crd.OUTCOME_BUDGET_HELD)
+        self.assertIn("24h", report.hold_reason)
+
+    def test_carry_forward_is_labelled_in_summary(self):
+        text = self._report("2026-09-07T09:00:00Z").markdown()
+        self.assertIn("carried forward", text)
+        self.assertIn("3.0h", text)
+
+    def test_fresh_count_is_not_labelled_carried(self):
+        report = run(
+            [repo("tools")],
+            {"florianhorner/tools": [pr(3, head=HEAD_C)]},
+            {("florianhorner/tools", 3): [comment(GOOD_BUDGET)]},
+        )
+        self.assertEqual(report.budget.seven_day, 22)
+        self.assertFalse(report.budget.seven_day_is_carried)
+        self.assertNotIn("carried forward", report.markdown())
+
+    def test_carried_count_still_respects_the_ceiling(self):
+        over = GOOD_BUDGET.replace("22 included", "40 included")
+        report = run(
+            [repo("tools")],
+            {"florianhorner/tools": [pr(3, head=HEAD_C)]},
+            {
+                ("florianhorner/tools", 3): [
+                    comment(over, when="2026-09-07T09:00:00Z"),
+                    comment(FOOTER_1114, when="2026-09-07T12:00:00Z"),
+                ]
+            },
+        )
+        self.assertEqual(report.budget.seven_day, 40)
+        self.assertEqual(report.outcome, crd.OUTCOME_BUDGET_HELD)
+
+
+class PrefilterParityTest(unittest.TestCase):
+    """fetch_snapshot drops PRs on the pre-filter to avoid two API calls each.
+
+    That is only safe while the pre-filter returns exactly the reasons
+    classify_pr would have returned from the same PR-list row.
+    """
+
+    CASES = (
+        ("tools", False, {"author": "dependabot[bot]", "is_bot": True, "user_type": "Bot"}),
+        ("tools", False, {"draft": True}),
+        ("tools", False, {"author": "renovate[bot]", "is_bot": True, "user_type": "Bot"}),
+        ("tools", False, {"author": "someone-else"}),
+        ("core", True, {}),
+    )
+
+    def test_prefilter_reason_matches_classify_skip_reason(self):
+        for name, fork, kwargs in self.CASES:
+            with self.subTest(repo=name, fork=fork, pr=kwargs):
+                row = pr(1, **kwargs)
+                reason = crd.prefilter_skip_reason(repo_name=name, is_fork=fork, pr=row)
+                self.assertIsNotNone(reason)
+                classified = crd.classify_pr(
+                    repo=f"florianhorner/{name}",
+                    repo_name=name,
+                    is_fork=fork,
+                    pr=row,
+                    comments=(),
+                    reviews=(),
+                )
+                self.assertEqual(classified.skip_reason, reason)
+
+    def test_eligible_pr_is_not_prefiltered(self):
+        self.assertIsNone(
+            crd.prefilter_skip_reason(repo_name="tools", is_fork=False, pr=pr(1))
+        )
+        self.assertIsNone(
+            crd.prefilter_skip_reason(
+                repo_name="lightener-studio", is_fork=True, pr=pr(1)
+            )
+        )
+
+
+class PartialDataTest(unittest.TestCase):
+    def test_errors_render_and_do_not_block_a_selection(self):
+        report = crd.evaluate(
+            repos=[repo("tools")],
+            pulls_by_repo={"florianhorner/tools": [pr(3, head=HEAD_C)]},
+            comments_by_pr={("florianhorner/tools", 3): [comment(GOOD_BUDGET)]},
+            reviews_by_pr={},
+            enabled_file_present=True,
+            errors=["`florianhorner/other`: open PRs unreadable (HTTP 403) — repo skipped"],
+        )
+        self.assertEqual(report.outcome, crd.OUTCOME_WOULD_REVIEW)
+        text = report.markdown()
+        self.assertIn("## Partial data", text)
+        self.assertIn("HTTP 403", text)
+
+
+class TableCapTest(unittest.TestCase):
+    def test_table_caps_rows_and_keeps_candidates_first(self):
+        repos = [repo("tools")]
+        pulls = [pr(n, draft=True, head=HEAD_B) for n in range(1, crd.MAX_TABLE_ROWS + 20)]
+        pulls.append(pr(9999, head=HEAD_C))
+        report = run(
+            repos,
+            {"florianhorner/tools": pulls},
+            {("florianhorner/tools", 9999): [comment(GOOD_BUDGET)]},
+        )
+        text = report.markdown()
+        self.assertEqual(text.count("| `WOULD_REVIEW` |"), 1)
+        self.assertIn("| 9999 |", text)
+        self.assertIn("table capped at", text)
+        self.assertLessEqual(
+            text.count("| `florianhorner/tools` |"), crd.MAX_TABLE_ROWS
+        )
 
 
 def json_dumps(obj) -> str:

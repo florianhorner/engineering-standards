@@ -45,6 +45,8 @@ Team Fair Usage is per developer and does not bank unused hourly slots. Shotgun 
 - First reviews stay automatic via CodeRabbit (`reviews.auto_review.enabled: true`). Incrementals are not automatic.
 - Shadow only: job summary. No comments, no labels, no GitHub App, no writes to other repos, no hourly issues.
 - 7-day ceiling 35 included reviews; fail closed if the count cannot be read. Does not spend leftover hourly slots just because they exist.
+- CodeRabbit's newest footer sometimes omits the 7-day integer, so the count is carried forward from the newest footer that had one, within a 24h window and labelled with its age. Outside the window the job holds.
+- Per-repo and per-PR read failures are isolated and reported under **Partial data**; one 403 does not abort the tick.
 - Kill switches: delete `.github/coderabbit-dispatch.enabled`, or set repository variable `CODERABBIT_DISPATCH` to literal `0`.
 
 **[specs/coderabbit-dispatch-spec.md](specs/coderabbit-dispatch-spec.md)** is the locked product. Run `bash coderabbit-dispatch-remote.sh` (needs `gh`). Tests: `python3 -m unittest discover -s tests -p 'test_*.py'`.

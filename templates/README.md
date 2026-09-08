@@ -16,7 +16,9 @@ Drop-in files that `bootstrap-repo.sh` (Phase 4 deliverable) copies or appends i
 
 ## Idempotency
 
-Every template that gets appended (CLAUDE.md, CONTRIBUTING.md) is wrapped in `<!-- BEGIN: commit-message-standards --> ... <!-- END: commit-message-standards -->` markers. Re-running the bootstrap script replaces the section in place rather than double-appending. `.coderabbit.yaml` uses `# BEGIN/END: engineering-standards-coderabbit` the same way; an unmarked hand-written CodeRabbit config is never overwritten.
+Every template that gets appended (CLAUDE.md, CONTRIBUTING.md) is wrapped in `<!-- BEGIN: commit-message-standards --> ... <!-- END: commit-message-standards -->` markers. Re-running the bootstrap script replaces the section in place rather than double-appending.
+
+`.coderabbit.yaml` is different and deliberately so. It is a whole config file, not a snippet inside a host file, so `# BEGIN/END: engineering-standards-coderabbit` is a **provenance stamp, not a section boundary**: bootstrap replaces the *entire file* when the stamp is present. Local edits to a stamped `.coderabbit.yaml` are overwritten on the next run — delete the `# BEGIN:` line to opt a repo out. An unmarked hand-written CodeRabbit config is never touched.
 
 ## SHA pinning
 

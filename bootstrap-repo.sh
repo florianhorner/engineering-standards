@@ -685,9 +685,13 @@ elif [ ! -f "$CODERABBIT_YAML_PATH" ]; then
   TOUCHED_FILES+=("$CODERABBIT_YAML_PATH")
   step_pass "${CODERABBIT_YAML_PATH} (created — ${CRYAML_SOURCE})"
 elif grep -qF -- "$CODERABBIT_YAML_BEGIN" "$CODERABBIT_YAML_PATH" 2>/dev/null; then
+  # Unlike CLAUDE.md / CONTRIBUTING.md, the markers here are a provenance stamp,
+  # not a section boundary: .coderabbit.yaml is a whole config file, so a refresh
+  # is a whole-file replace. Local edits to a marked file are overwritten — drop
+  # the marker line to opt a repo out.
   cp "$TMP_CRYAML" "$CODERABBIT_YAML_PATH"
   TOUCHED_FILES+=("$CODERABBIT_YAML_PATH")
-  step_pass "${CODERABBIT_YAML_PATH} (refreshed in place — ${CRYAML_SOURCE})"
+  step_pass "${CODERABBIT_YAML_PATH} (replaced whole file — ${CRYAML_SOURCE})"
 else
   step_warn "${CODERABBIT_YAML_PATH}" "unmarked hand-written file left untouched — will not clobber"
 fi
@@ -716,7 +720,7 @@ fi
 rm -f "$TMP_CL"
 
 # ---------------------------------------------------------------------------
-# Step 6: append CONTRIBUTING.md cheat sheet
+# Step 7: append CONTRIBUTING.md cheat sheet
 # ---------------------------------------------------------------------------
 step_start 7 "$TOTAL_STEPS" "update ${CONTRIBUTING_MD}"
 CONTRIB_URL="${ENGSTD_RAW_BASE}/${ENGSTD_SHA}/templates/per-repo-CONTRIBUTING-snippet.md"
@@ -734,7 +738,7 @@ fi
 rm -f "$TMP_CO"
 
 # ---------------------------------------------------------------------------
-# Step 7: AUTHOR-NOTES.md only if target is a fork
+# Step 8: AUTHOR-NOTES.md only if target is a fork
 # ---------------------------------------------------------------------------
 step_start 8 "$TOTAL_STEPS" "drop AUTHOR-NOTES.md if fork"
 IS_FORK="false"
@@ -763,7 +767,7 @@ case "$IS_FORK" in
 esac
 
 # ---------------------------------------------------------------------------
-# Step 8: generate commit-msg hook (worktree-safe path resolution)
+# Step 9: generate commit-msg hook (worktree-safe path resolution)
 # ---------------------------------------------------------------------------
 # Resolve the actual git hooks dir — for regular repos it's .git/hooks/, for
 # worktrees `git rev-parse --git-dir` returns the per-worktree gitdir which is
@@ -812,7 +816,7 @@ TOUCHED_FILES+=("$HOOK_PATH")
 step_pass "${HOOK_PATH} ($(wc -l < "$HOOK_PATH" | tr -d ' ') lines, source: ${GEN_SOURCE})"
 
 # ---------------------------------------------------------------------------
-# Step 9: validator dry-run against last 3 commits
+# Step 10: validator dry-run against last 3 commits
 # ---------------------------------------------------------------------------
 step_start 10 "$TOTAL_STEPS" "validator dry-run vs last 3 commits"
 DRY_FAIL=0
@@ -848,7 +852,7 @@ fi
 rm -f "$DRY_LOG"
 
 # ---------------------------------------------------------------------------
-# Step 10: check Actions enabled
+# Step 11: check Actions enabled
 # ---------------------------------------------------------------------------
 step_start 11 "$TOTAL_STEPS" "verify GitHub Actions enabled"
 REPO_SLUG=""
@@ -871,7 +875,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Step 11: print remaining manual steps
+# Step 12: print remaining manual steps
 # ---------------------------------------------------------------------------
 step_start 12 "$TOTAL_STEPS" "compile remaining manual checklist"
 MANUAL=()
@@ -891,7 +895,7 @@ MANUAL+=("Push and watch CI: 'git push' — the reusable workflow will validate 
 step_pass "manual checklist compiled (${#MANUAL[@]} items)"
 
 # ---------------------------------------------------------------------------
-# Step 12: auto-prettier on dropped files (if consumer has prettier configured)
+# Step 13: auto-prettier on dropped files (if consumer has prettier configured)
 # ---------------------------------------------------------------------------
 # Real cause: QFE PR #21 build job rejected unformatted RETRO.md; mammamiradio
 # + CID needed mid-PR prettier commits; conversation-intelligence-dashboard
@@ -939,7 +943,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Step 13: auto-create runtime proof file for verify-claims artifact reference
+# Step 14: auto-create runtime proof file for verify-claims artifact reference
 # ---------------------------------------------------------------------------
 # Phase 5B asymmetry: 3 of 6 PRs had a runtime proof file and 3 didn't, which
 # left verify-claims unable to attach a uniform artifact. Going forward EVERY
@@ -1016,7 +1020,7 @@ TOUCHED_FILES+=("$PROOF_FILE")
 step_pass "runtime proof: ${PROOF_FILE}"
 
 # ---------------------------------------------------------------------------
-# Step 14: TTHW timer + final summary
+# Step 15: TTHW timer + final summary
 # ---------------------------------------------------------------------------
 step_start 15 "$TOTAL_STEPS" "compute TTHW"
 ELAPSED=$((SECONDS - START_SECONDS))
