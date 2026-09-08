@@ -131,6 +131,8 @@ def install(root, files):
 
 
 def main():
+    if sys.version_info < (3, 9):
+        raise ValueError("Python 3.9+ is required")
     parser = argparse.ArgumentParser(description=(
         "Install CI configuration only. No hooks, agent instructions, bot settings, "
         "proof files, commits or publication. Requires Python 3.9+."))

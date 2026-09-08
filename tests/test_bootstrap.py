@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -150,6 +151,19 @@ else:
     def test_dirty_tree(self):
         (self.repo / "owned-work.txt").write_text("preserve")
         self.assert_unchanged(self.invoke(), self.git("status", "--porcelain"))
+
+    def test_unsupported_python_stops_before_reads_or_writes(self):
+        source = (ROOT / "bootstrap-repo.sh").read_text().split("<<'PY'\n", 1)[1]
+        source = source.rsplit("\nPY", 1)[0]
+        self.view_file.write_text(json.dumps(self.view))
+        result = subprocess.run(
+            [sys.executable, "-c", "import sys\nsys.version_info = (3, 8, 0)\n" + source,
+             str(self.repo), "--repo", REPO, "--ref", SHA],
+            env=self.env, capture_output=True, text=True)
+        self.assert_unchanged(result, "")
+        self.assertIn("Python 3.9+ is required", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertFalse(self.calls.exists())
 
     def test_rejects_mutable_ref_and_ignored_destination(self):
         self.assert_unchanged(self.invoke("--ref", "main"), "")
