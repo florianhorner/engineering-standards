@@ -2,6 +2,10 @@
 # Install minimal CI configuration on one explicitly selected feature branch.
 # Embedded Python keeps the downloaded script self-contained.
 set -euo pipefail
+if ! command -v python3 >/dev/null 2>&1; then
+  printf '%s\n' 'Bootstrap stopped: Python 3.9+ is required' >&2
+  exit 1
+fi
 exec python3 - "$@" <<'PY'
 import argparse
 import json
@@ -24,6 +28,8 @@ def run(*args):
     result = subprocess.run(args, capture_output=True, text=True, check=False)
     if result.returncode:
         # Never relay credential-bearing remotes or arbitrary API error bodies.
+        if args[0] == "git":
+            raise ValueError("Git preflight failed; verify repository root, origin and checkout state")
         raise ValueError(f"{args[0]} read failed; verify repository access")
     return result.stdout.strip()
 
@@ -67,6 +73,19 @@ def payload(sha):
     return {WORKFLOW: workflow, RULES: encoded, META: encoded}
 
 
+def replace_file(dest, contents, mode):
+    temp = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=dest.parent, delete=False) as staged:
+            temp = Path(staged.name)
+            staged.write(contents)
+        temp.chmod(mode)
+        os.replace(temp, dest)
+    finally:
+        if temp is not None:
+            temp.unlink(missing_ok=True)
+
+
 def install(root, files):
     destinations = {name: safe_path(root, name) for name in files}
     for name, dest in destinations.items():
@@ -105,16 +124,7 @@ def install(root, files):
             previous = originals[name]
             if previous and previous[0] == text.encode():
                 continue
-            temp = None
-            try:
-                with tempfile.NamedTemporaryFile(dir=dest.parent, delete=False) as staged:
-                    temp = Path(staged.name)
-                    staged.write(text.encode())
-                temp.chmod(previous[1] if previous else 0o644)
-                os.replace(temp, dest)
-            finally:
-                if temp is not None:
-                    temp.unlink(missing_ok=True)
+            replace_file(dest, text.encode(), previous[1] if previous else 0o644)
             written.append(name)
     except BaseException:
         for name in reversed(written):
@@ -123,8 +133,7 @@ def install(root, files):
             if previous is None:
                 dest.unlink()
             else:
-                dest.write_bytes(previous[0])
-                dest.chmod(previous[1])
+                replace_file(dest, previous[0], previous[1])
         for directory in reversed(created_dirs):
             directory.rmdir()
         raise

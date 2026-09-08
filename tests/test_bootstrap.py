@@ -15,6 +15,14 @@ FILES = {".github/workflows/commit-lint.yml", ".config/commit-rules.json",
          ".config/commit-rules.meta.json"}
 
 
+def installer_namespace():
+    source = (ROOT / "bootstrap-repo.sh").read_text().split("<<'PY'\n", 1)[1]
+    definitions = source.split("\ntry:\n    main()", 1)[0]
+    namespace = {}
+    exec(compile(definitions, "bootstrap-repo.sh", "exec"), namespace)
+    return namespace
+
+
 class BootstrapTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -165,6 +173,24 @@ else:
         self.assertNotIn("Traceback", result.stderr)
         self.assertFalse(self.calls.exists())
 
+    def test_missing_python_stops_before_reads_or_writes(self):
+        result = subprocess.run(
+            ["/bin/bash", str(ROOT / "bootstrap-repo.sh")],
+            env={**self.env, "PATH": str(self.bin)}, capture_output=True, text=True)
+        self.assert_unchanged(result, "")
+        self.assertIn("Bootstrap stopped: Python 3.9+ is required", result.stderr)
+        self.assertFalse(self.calls.exists())
+
+    def test_git_failure_reports_local_preflight_without_raw_stderr(self):
+        namespace = installer_namespace()
+        failure = subprocess.CompletedProcess(
+            ["git"], 128, "", "https://user:credential@example.invalid")
+        with mock.patch.object(subprocess, "run", return_value=failure):
+            with self.assertRaisesRegex(ValueError, "Git preflight failed") as caught:
+                namespace["run"]("git", "remote", "get-url", "origin")
+        self.assertNotIn("credential", str(caught.exception))
+        self.assertNotIn("repository access", str(caught.exception))
+
     def test_rejects_mutable_ref_and_ignored_destination(self):
         self.assert_unchanged(self.invoke("--ref", "main"), "")
         (self.repo / ".gitignore").write_text(".config/\n")
@@ -244,10 +270,7 @@ else:
         self.assertEqual(summary.read_text(), "preserve\n")
 
     def test_write_failure_restores_all_destinations(self):
-        source = (ROOT / "bootstrap-repo.sh").read_text().split("<<'PY'\n", 1)[1]
-        definitions = source.split("\ntry:\n    main()", 1)[0]
-        namespace = {}
-        exec(compile(definitions, "bootstrap-repo.sh", "exec"), namespace)
+        namespace = installer_namespace()
         original_replace = os.replace
         calls = []
 
@@ -263,6 +286,34 @@ else:
         self.assertEqual(self.git("status", "--porcelain"), "")
         self.assertFalse((self.repo / ".github").exists())
         self.assertFalse((self.repo / ".config").exists())
+
+    def test_write_failure_restores_read_only_managed_files(self):
+        namespace = installer_namespace()
+        original = namespace["payload"]("b" * 40)
+        for name, text in original.items():
+            dest = self.repo / name
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(text)
+            dest.chmod(0o444)
+        self.git("add", ".")
+        self.git("commit", "-m", "test: read-only installation")
+        original_replace = os.replace
+        calls = []
+
+        def fail_second(source, target):
+            calls.append(target)
+            if len(calls) == 2:
+                raise OSError("injected write failure")
+            return original_replace(source, target)
+
+        with mock.patch.object(os, "replace", side_effect=fail_second):
+            with self.assertRaisesRegex(OSError, "injected write failure"):
+                namespace["install"](self.repo, namespace["payload"](SHA))
+        for name, text in original.items():
+            dest = self.repo / name
+            self.assertEqual(dest.read_text(), text)
+            self.assertEqual(dest.stat().st_mode & 0o777, 0o444)
+        self.assertEqual(self.git("status", "--porcelain"), "")
 
 
 if __name__ == "__main__":
