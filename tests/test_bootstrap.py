@@ -81,6 +81,9 @@ elif args[:1] == ["api"] and len(args) == 2 and "/contents/" in args[1]:
     if os.environ.get("TEST_SWITCH_BRANCH"):
         subprocess.run(["git", "switch", os.environ["TEST_SWITCH_BRANCH"]],
                        capture_output=True, check=True)
+    if os.environ.get("TEST_SOURCE_ORIGIN"):
+        subprocess.run(["git", "remote", "set-url", "origin", os.environ["TEST_SOURCE_ORIGIN"]],
+                       capture_output=True, check=True)
     print(json.dumps({"type": "file", "sha": "b" * 40}))
 else:
     sys.exit(99)
@@ -159,6 +162,18 @@ else:
     def test_dirty_tree(self):
         (self.repo / "owned-work.txt").write_text("preserve")
         self.assert_unchanged(self.invoke(), self.git("status", "--porcelain"))
+
+    def test_origin_changes_during_preflight_stop_before_writes(self):
+        for remote in ("https://github.com/other/example.git",
+                       "https://github.com/florianhorner/different.git"):
+            with self.subTest(remote=remote):
+                self.git("remote", "set-url", "origin", f"https://github.com/{REPO}.git")
+                self.env["TEST_SOURCE_ORIGIN"] = remote
+                result = self.invoke()
+                self.assert_unchanged(result, "")
+                self.assertIn("Origin changed during preflight", result.stderr)
+                self.assertEqual(self.git("branch", "--show-current"), "adopt-policy")
+                self.assertNotIn(remote, result.stderr)
 
     def test_unsupported_python_stops_before_reads_or_writes(self):
         source = (ROOT / "bootstrap-repo.sh").read_text().split("<<'PY'\n", 1)[1]

@@ -191,6 +191,8 @@ def main():
         raise ValueError("Branch changed during preflight")
     if run("git", "status", "--porcelain", "--untracked-files=all"):
         raise ValueError("Working tree changed during preflight")
+    if run("git", "remote", "get-url", "origin").removesuffix(".git") not in allowed:
+        raise ValueError("Origin changed during preflight")
     install(root, payload(args.ref))
     print(f"Prepared CI configuration for {args.repo} ({repo['visibility']}).")
     print("\n".join(payload(args.ref)))
