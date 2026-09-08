@@ -7,15 +7,18 @@ Drop-in files that `bootstrap-repo.sh` (Phase 4 deliverable) copies or appends i
 | Template | Lands at (in consumer repo) | Bootstrap step |
 |---|---|---|
 | `per-repo-CLAUDE-snippet.md` | Appended between `BEGIN/END` markers in `CLAUDE.md` | Step 6 — append to `CLAUDE.md` |
-| `per-repo-CONTRIBUTING-snippet.md` | Appended between `BEGIN/END` markers in `CONTRIBUTING.md` (created if missing) | Step 5 — drop/append `CONTRIBUTING.md` |
-| `AUTHOR-NOTES.md` | Copied as `AUTHOR-NOTES.md` at repo root, **only on Tier 1A fork branches** (e.g. `lightener-curve-editor`, `govee2mqtt-extended`) | Step 5b — fork-branch-only copy |
+| `per-repo-CONTRIBUTING-snippet.md` | Appended between `BEGIN/END` markers in `CONTRIBUTING.md` (created if missing) | Step 7 — drop/append `CONTRIBUTING.md` |
+| `AUTHOR-NOTES.md` | Copied as `AUTHOR-NOTES.md` at repo root, **only on Tier 1A fork branches** (e.g. `lightener-curve-editor`, `govee2mqtt-extended`) | Step 8 — fork-only copy |
 | `.commitlintrc.json` | Copied as `.commitlintrc.json` at repo root | Step 2 — drop commitlint config |
 | `per-repo-commit-lint.yml` | Copied as `.github/workflows/commit-lint.yml` (5-line includer; bootstrap script resolves `@v1` to the actual SHA-pinned ref) | Step 3 — drop CI includer |
+| `.coderabbit.yaml` | Copied as `.coderabbit.yaml` when missing; refreshed in place when the engineering-standards markers are present; an unmarked hand-written file is left untouched | Step 5 — CodeRabbit auto-review (first review on, incrementals off) |
 | `dependabot-snippet.yml` | Nothing — reference only. Step 4 **generates** `.github/dependabot.yml` from the manifests the target repo tracks (`git ls-files`), one block per ecosystem with every directory listed | Step 4 — generate dependabot config |
 
 ## Idempotency
 
 Every template that gets appended (CLAUDE.md, CONTRIBUTING.md) is wrapped in `<!-- BEGIN: commit-message-standards --> ... <!-- END: commit-message-standards -->` markers. Re-running the bootstrap script replaces the section in place rather than double-appending.
+
+`.coderabbit.yaml` is different and deliberately so. It is a whole config file, not a snippet inside a host file, so `# BEGIN/END: engineering-standards-coderabbit` is a **provenance stamp, not a section boundary**: bootstrap replaces the *entire file* when the stamp is present. Local edits to a stamped `.coderabbit.yaml` are overwritten on the next run — delete the `# BEGIN:` line to opt a repo out. An unmarked hand-written CodeRabbit config is never touched.
 
 ## SHA pinning
 

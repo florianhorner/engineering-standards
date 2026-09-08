@@ -28,6 +28,9 @@ readonly DEPENDABOT_PATH=".github/dependabot.yml"
 readonly CLAUDE_MD="CLAUDE.md"
 readonly CONTRIBUTING_MD="CONTRIBUTING.md"
 readonly AUTHOR_NOTES_MD="AUTHOR-NOTES.md"
+readonly CODERABBIT_YAML_PATH=".coderabbit.yaml"
+readonly CODERABBIT_YAML_BEGIN="# BEGIN: engineering-standards-coderabbit"
+readonly CODERABBIT_YAML_END="# END: engineering-standards-coderabbit"
 # HOOK_PATH resolved at runtime via git rev-parse --git-dir (worktree-safe;
 # `.git` is a file pointer in worktrees, not a directory). Falls back to
 # `.git/hooks/commit-msg` only when not in a git repo (caught earlier in pre-flight).
@@ -382,7 +385,7 @@ dependabot_foreign_pairs() {
   ' "$DEPENDABOT_PATH"
 }
 
-TOTAL_STEPS=14
+TOTAL_STEPS=15
 
 # ---------------------------------------------------------------------------
 # Step 1: vendor commit-rules.json (SHA-pinned)
@@ -651,9 +654,53 @@ if [ "${#DEP_COLLISIONS[@]}" -gt 0 ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Step 5: append CLAUDE.md snippet (idempotent, marker-bracketed)
+# Step 5: install .coderabbit.yaml (first review on; incrementals off)
 # ---------------------------------------------------------------------------
-step_start 5 "$TOTAL_STEPS" "update ${CLAUDE_MD}"
+# Durable fleet copy of CodeRabbit auto_review. Does not silently rewrite a
+# hand-written consumer file: missing → install; marked → refresh; unmarked →
+# leave untouched. Org CodeRabbit UI remains the live kill for incrementals
+# on mammamiradio today — this file cannot click that dashboard.
+step_start 5 "$TOTAL_STEPS" "install ${CODERABBIT_YAML_PATH}"
+CODERABBIT_YAML_URL="${ENGSTD_RAW_BASE}/${ENGSTD_SHA}/templates/.coderabbit.yaml"
+TMP_CRYAML="$(mktemp)"
+CRYAML_SOURCE=""
+if curl -fsSL --max-time 30 "$CODERABBIT_YAML_URL" -o "$TMP_CRYAML" 2>/dev/null \
+   && [ -s "$TMP_CRYAML" ]; then
+  CRYAML_SOURCE="remote (${ENGSTD_SHA:0:7})"
+else
+  SCRIPT_DIR_CR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+  LOCAL_CRYAML="${SCRIPT_DIR_CR}/templates/.coderabbit.yaml"
+  if [ -f "$LOCAL_CRYAML" ]; then
+    cp "$LOCAL_CRYAML" "$TMP_CRYAML"
+    CRYAML_SOURCE="local fallback (${LOCAL_CRYAML})"
+  else
+    rm -f "$TMP_CRYAML"
+    TMP_CRYAML=""
+  fi
+fi
+if [ -z "$TMP_CRYAML" ]; then
+  step_warn "${CODERABBIT_YAML_PATH}" "template not yet published; skipped"
+elif [ ! -f "$CODERABBIT_YAML_PATH" ]; then
+  cp "$TMP_CRYAML" "$CODERABBIT_YAML_PATH"
+  TOUCHED_FILES+=("$CODERABBIT_YAML_PATH")
+  step_pass "${CODERABBIT_YAML_PATH} (created — ${CRYAML_SOURCE})"
+elif grep -qF -- "$CODERABBIT_YAML_BEGIN" "$CODERABBIT_YAML_PATH" 2>/dev/null; then
+  # Unlike CLAUDE.md / CONTRIBUTING.md, the markers here are a provenance stamp,
+  # not a section boundary: .coderabbit.yaml is a whole config file, so a refresh
+  # is a whole-file replace. Local edits to a marked file are overwritten — drop
+  # the marker line to opt a repo out.
+  cp "$TMP_CRYAML" "$CODERABBIT_YAML_PATH"
+  TOUCHED_FILES+=("$CODERABBIT_YAML_PATH")
+  step_pass "${CODERABBIT_YAML_PATH} (replaced whole file — ${CRYAML_SOURCE})"
+else
+  step_warn "${CODERABBIT_YAML_PATH}" "unmarked hand-written file left untouched — will not clobber"
+fi
+[ -n "$TMP_CRYAML" ] && rm -f "$TMP_CRYAML"
+
+# ---------------------------------------------------------------------------
+# Step 6: append CLAUDE.md snippet (idempotent, marker-bracketed)
+# ---------------------------------------------------------------------------
+step_start 6 "$TOTAL_STEPS" "update ${CLAUDE_MD}"
 CLAUDE_SNIPPET_URL="${ENGSTD_RAW_BASE}/${ENGSTD_SHA}/templates/per-repo-CLAUDE-snippet.md"
 TMP_CL="$(mktemp)"
 if curl -fsSL --max-time 30 "$CLAUDE_SNIPPET_URL" -o "$TMP_CL" 2>/dev/null \
@@ -673,9 +720,9 @@ fi
 rm -f "$TMP_CL"
 
 # ---------------------------------------------------------------------------
-# Step 6: append CONTRIBUTING.md cheat sheet
+# Step 7: append CONTRIBUTING.md cheat sheet
 # ---------------------------------------------------------------------------
-step_start 6 "$TOTAL_STEPS" "update ${CONTRIBUTING_MD}"
+step_start 7 "$TOTAL_STEPS" "update ${CONTRIBUTING_MD}"
 CONTRIB_URL="${ENGSTD_RAW_BASE}/${ENGSTD_SHA}/templates/per-repo-CONTRIBUTING-snippet.md"
 TMP_CO="$(mktemp)"
 if curl -fsSL --max-time 30 "$CONTRIB_URL" -o "$TMP_CO" 2>/dev/null \
@@ -691,9 +738,9 @@ fi
 rm -f "$TMP_CO"
 
 # ---------------------------------------------------------------------------
-# Step 7: AUTHOR-NOTES.md only if target is a fork
+# Step 8: AUTHOR-NOTES.md only if target is a fork
 # ---------------------------------------------------------------------------
-step_start 7 "$TOTAL_STEPS" "drop AUTHOR-NOTES.md if fork"
+step_start 8 "$TOTAL_STEPS" "drop AUTHOR-NOTES.md if fork"
 IS_FORK="false"
 IS_FORK="$(gh repo view --json isFork --jq .isFork 2>/dev/null || echo 'unknown')"
 case "$IS_FORK" in
@@ -720,7 +767,7 @@ case "$IS_FORK" in
 esac
 
 # ---------------------------------------------------------------------------
-# Step 8: generate commit-msg hook (worktree-safe path resolution)
+# Step 9: generate commit-msg hook (worktree-safe path resolution)
 # ---------------------------------------------------------------------------
 # Resolve the actual git hooks dir — for regular repos it's .git/hooks/, for
 # worktrees `git rev-parse --git-dir` returns the per-worktree gitdir which is
@@ -731,7 +778,7 @@ if [ -z "$GIT_HOOKS_DIR" ]; then
   GIT_HOOKS_DIR="${GIT_DIR_RESOLVED}/hooks"
 fi
 HOOK_PATH="${GIT_HOOKS_DIR}/commit-msg"
-step_start 8 "$TOTAL_STEPS" "generate ${HOOK_PATH}"
+step_start 9 "$TOTAL_STEPS" "generate ${HOOK_PATH}"
 GENERATOR_URL="${ENGSTD_RAW_BASE}/${ENGSTD_SHA}/validator/generate-hook.py"
 TMP_GEN="$(mktemp)"
 GEN_SOURCE=""
@@ -769,9 +816,9 @@ TOUCHED_FILES+=("$HOOK_PATH")
 step_pass "${HOOK_PATH} ($(wc -l < "$HOOK_PATH" | tr -d ' ') lines, source: ${GEN_SOURCE})"
 
 # ---------------------------------------------------------------------------
-# Step 9: validator dry-run against last 3 commits
+# Step 10: validator dry-run against last 3 commits
 # ---------------------------------------------------------------------------
-step_start 9 "$TOTAL_STEPS" "validator dry-run vs last 3 commits"
+step_start 10 "$TOTAL_STEPS" "validator dry-run vs last 3 commits"
 DRY_FAIL=0
 DRY_TOTAL=0
 DRY_LOG="$(mktemp)"
@@ -805,9 +852,9 @@ fi
 rm -f "$DRY_LOG"
 
 # ---------------------------------------------------------------------------
-# Step 10: check Actions enabled
+# Step 11: check Actions enabled
 # ---------------------------------------------------------------------------
-step_start 10 "$TOTAL_STEPS" "verify GitHub Actions enabled"
+step_start 11 "$TOTAL_STEPS" "verify GitHub Actions enabled"
 REPO_SLUG=""
 REPO_SLUG="$(gh repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null || echo '')"
 if [ -z "$REPO_SLUG" ]; then
@@ -828,9 +875,9 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Step 11: print remaining manual steps
+# Step 12: print remaining manual steps
 # ---------------------------------------------------------------------------
-step_start 11 "$TOTAL_STEPS" "compile remaining manual checklist"
+step_start 12 "$TOTAL_STEPS" "compile remaining manual checklist"
 MANUAL=()
 if [ -n "$REPO_SLUG" ]; then
   if [ "$ACTIONS_ENABLED" != "true" ]; then
@@ -848,14 +895,14 @@ MANUAL+=("Push and watch CI: 'git push' — the reusable workflow will validate 
 step_pass "manual checklist compiled (${#MANUAL[@]} items)"
 
 # ---------------------------------------------------------------------------
-# Step 12: auto-prettier on dropped files (if consumer has prettier configured)
+# Step 13: auto-prettier on dropped files (if consumer has prettier configured)
 # ---------------------------------------------------------------------------
 # Real cause: QFE PR #21 build job rejected unformatted RETRO.md; mammamiradio
 # + CID needed mid-PR prettier commits; conversation-intelligence-dashboard
 # had pre-existing prettier debt that interacted with our drops. Detect the
 # consumer's prettier config and format our dropped files with it BEFORE the
 # user commits — eliminates the format-mismatch blocker class entirely.
-step_start 12 "$TOTAL_STEPS" "auto-prettier dropped files"
+step_start 13 "$TOTAL_STEPS" "auto-prettier dropped files"
 PRETTIER_CONFIG=""
 for cfg in .prettierrc .prettierrc.json .prettierrc.yml .prettierrc.yaml prettier.config.js .prettierrc.js; do
   if [ -f "$cfg" ]; then
@@ -879,7 +926,7 @@ else
   PRETTIER_TARGETS=()
   for f in "$COMMITLINTRC_PATH" "$RULES_PATH" ".config/commit-rules.meta.json" \
            "$DEPENDABOT_PATH" "$CI_WORKFLOW_PATH" "$CLAUDE_MD" "$CONTRIBUTING_MD" \
-           "RETRO.md" "$AUTHOR_NOTES_MD"; do
+           "RETRO.md" "$AUTHOR_NOTES_MD" "$CODERABBIT_YAML_PATH"; do
     [ -f "$f" ] && PRETTIER_TARGETS+=("$f")
   done
   if [ "${#PRETTIER_TARGETS[@]}" -eq 0 ]; then
@@ -896,14 +943,14 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Step 13: auto-create runtime proof file for verify-claims artifact reference
+# Step 14: auto-create runtime proof file for verify-claims artifact reference
 # ---------------------------------------------------------------------------
 # Phase 5B asymmetry: 3 of 6 PRs had a runtime proof file and 3 didn't, which
 # left verify-claims unable to attach a uniform artifact. Going forward EVERY
 # bootstrapped repo gets a proof/<date>-commit-standards-bootstrap-runtime.txt
 # containing what was installed, the SHA pin, validator dry-run result, and a
 # ready-to-paste PR Proof block (prose form per verify-claims@v1.1 workaround).
-step_start 13 "$TOTAL_STEPS" "auto-create runtime proof file"
+step_start 14 "$TOTAL_STEPS" "auto-create runtime proof file"
 PROOF_DATE="$(date -u +%Y-%m-%d)"
 PROOF_TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 PROOF_DIR="proof"
@@ -973,9 +1020,9 @@ TOUCHED_FILES+=("$PROOF_FILE")
 step_pass "runtime proof: ${PROOF_FILE}"
 
 # ---------------------------------------------------------------------------
-# Step 14: TTHW timer + final summary
+# Step 15: TTHW timer + final summary
 # ---------------------------------------------------------------------------
-step_start 14 "$TOTAL_STEPS" "compute TTHW"
+step_start 15 "$TOTAL_STEPS" "compute TTHW"
 ELAPSED=$((SECONDS - START_SECONDS))
 step_pass "elapsed ${ELAPSED}s (target: <300s for first compliant commit + green CI)"
 
