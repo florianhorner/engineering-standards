@@ -24,7 +24,7 @@
 # This script is REPORT-ONLY. It never writes to any other repo, never calls
 # bootstrap-repo.sh, and has no --apply equivalent. If the report flags
 # something, fixing it is a separate, human-initiated action (either by hand
-# or via `fleet-audit.sh --apply` run locally).
+# through an explicitly selected feature checkout).
 #
 # Usage:
 #   bash fleet-audit-remote.sh                  # print markdown table to stdout
@@ -92,7 +92,7 @@ gh_default_branch_file() {
 # Enumerate Florian's real GitHub repos (owned or accessible), not a local
 # filesystem walk.
 # ---------------------------------------------------------------------------
-REPO_LIST_JSON="$(gh repo list florianhorner --limit 200 --json nameWithOwner,isFork,parent,isArchived)"
+REPO_LIST_JSON="$(gh repo list "$ENGSTD_OWNER" --limit 200 --json nameWithOwner,isFork,parent,isArchived,visibility)"
 
 # ---------------------------------------------------------------------------
 # Classify each repo. Rows: nameWithOwner|bucket|status|detail
@@ -155,6 +155,10 @@ except Exception:
 done < <(printf '%s' "$REPO_LIST_JSON" | python3 -c '
 import json, sys
 for r in json.load(sys.stdin):
+    # This report can enter public issues and Actions summaries. Omit private
+    # and unknown visibility even when the token can enumerate them.
+    if r.get("visibility") != "PUBLIC":
+        continue
     name = r["nameWithOwner"]
     is_fork = str(r["isFork"]).lower()
     is_archived = str(r["isArchived"]).lower()
@@ -215,7 +219,7 @@ ${SUMMARY_LINE}
 
 ${TABLE}
 
-_Report-only. This workflow never writes to any other repo. To fix a finding, run \`bootstrap-repo.sh\` locally (see fleet-audit.sh --apply) or ask Claude Code to do it in a local session._
+_Public repositories only. Inventory is not an adoption requirement. Installation requires one explicit clean feature checkout: bootstrap-repo.sh TARGET --repo OWNER/REPO --ref SHA._
 EOF
 )"
 
