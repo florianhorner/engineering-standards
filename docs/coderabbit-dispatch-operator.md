@@ -33,7 +33,7 @@ Both are enforced in `coderabbit-dispatch-remote.sh`, not only the workflow `if:
 
 ## Config files
 
-`templates/.coderabbit.yaml` is the fleet copy bootstrap may install when a consumer has no unmarked file. The `# BEGIN/END: engineering-standards-coderabbit` markers are a provenance stamp; a stamped file is replaced wholesale.
+`templates/.coderabbit.yaml` is an optional reference. Bootstrap does not copy or refresh it. Installation steps: [`templates/README.md`](../templates/README.md#optional-coderabbit-setup).
 
 Org-level YAML is edited at https://app.coderabbit.ai (Organization Settings → YAML Editor → Apply). A repo uses that YAML only when it is set to use organization settings.
 
