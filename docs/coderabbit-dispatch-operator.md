@@ -10,9 +10,10 @@ Both are required:
 2. Repository **variable** (not a secret) `CODERABBIT_DISPATCH=1` at
    https://github.com/florianhorner/engineering-standards/settings/variables/actions
 
-An unset or empty variable skips the Actions job: the workflow `if:` is
-`vars.CODERABBIT_DISPATCH != '0'`, and GitHub treats missing as `0`. The
-script would treat unset as on, but checkout never runs.
+The Actions job `if:` is `vars.CODERABBIT_DISPATCH == '1'`. Unset, empty,
+or any other value skips the job before checkout. The script treats unset
+as on; a local run is still off if the enable file is missing or the
+variable is literal `0`.
 
 ## Disable
 

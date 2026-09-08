@@ -31,7 +31,7 @@ Either one disables the dispatcher (enforced in `coderabbit-dispatch-remote.sh`,
 - delete `.github/coderabbit-dispatch.enabled`
 - set repository variable `CODERABBIT_DISPATCH` to literal `0`
 
-The on-switch is the enable file **plus** repository variable `CODERABBIT_DISPATCH=1`. An unset variable skips the Actions job (`if:` coerces empty to `0`) even though the script would treat unset as on. See the operator manual.
+The on-switch is the enable file **plus** repository variable `CODERABBIT_DISPATCH=1`. The Actions job `if:` is `vars.CODERABBIT_DISPATCH == '1'` (unset, empty, and `0` skip). The script treats unset as on. See the operator manual.
 
 ## Budget signal
 
