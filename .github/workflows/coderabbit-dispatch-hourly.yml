@@ -22,6 +22,11 @@ on:
 permissions:
   contents: read
   pull-requests: read
+  # PR comments live on the Issues API (`/issues/{n}/comments`), which is
+  # scoped by `issues`, not `pull-requests`. Only governs this repo's own PRs
+  # — cross-repo reads are public-only regardless — but without it the
+  # engineering-standards rows 403 and land in Partial data for no reason.
+  issues: read
 
 concurrency:
   group: coderabbit-dispatch

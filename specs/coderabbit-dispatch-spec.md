@@ -45,7 +45,7 @@ Per-repo and per-PR reads are isolated. A 403, a timeout, or an archived repo wi
 
 ## Request budget
 
-Comments and reviews cost two requests per PR, against every open PR on every owned repo. PRs are therefore dropped on the cheap pre-filter (fork allowlist, draft, Dependabot, GitHub App author, non-human) from the PR-list row **before** those requests are made, and pagination runs at `per_page=100`. Consequence, accepted: budget footers are harvested only from eligible PRs — which is where CodeRabbit posts them anyway, given `drafts: false` and the bot `ignore_usernames` in the shipped yaml.
+Comments and reviews cost two requests per PR, against every open PR on every owned repo. **Reviews** are fetched only for PRs that survive the cheap pre-filter (fork allowlist, draft, Dependabot, GitHub App author, non-human) — a PR that can never be a candidate has no use for its review objects. **Comments** are fetched for every open PR regardless, because they are the only budget-footer source and the pre-filtered PRs are exactly where CodeRabbit still burns quota while the org dashboard has incrementals on. Narrowing the comment reads would starve the one signal that already fails closed. Pagination runs at `per_page=100`, and every `gh` call has a 60s timeout so one stalled request cannot hang the tick until the workflow timeout.
 
 ## `.coderabbit.yaml`
 

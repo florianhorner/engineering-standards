@@ -16,8 +16,10 @@ Three runtime properties worth not regressing:
   newest CodeRabbit footer omits the integer. Without that, one count-less
   footer anywhere in the fleet holds every later tick forever.
 * Per-repo and per-PR reads are isolated. One 403 must not cost the whole tick.
-* Ineligible PRs are dropped from the PR-list row before their comments and
-  reviews are fetched — that pair of requests is the fan-out risk.
+* Ineligible PRs skip the reviews request, but still have their comments read:
+  comments are the only budget-footer source, and the ineligible PRs (drafts,
+  Dependabot) are where CodeRabbit still burns quota until the org dashboard is
+  flipped.
 
 `gh api --paginate` already merges JSON arrays across pages into one array, so
 --slurp and page flattening are not needed here; per_page is raised instead to
@@ -58,6 +60,9 @@ API_PER_PAGE = 100
 # `gh repo list` page size. Hitting it exactly is reported as partial data
 # rather than silently ranking a truncated fleet.
 REPO_LIST_LIMIT = 200
+# Per-`gh`-invocation wall clock. Without it one stalled call hangs the tick
+# until the workflow timeout and no report is written at all.
+GH_TIMEOUT_SECONDS = 60
 ENABLE_RELPATH = Path(".github") / "coderabbit-dispatch.enabled"
 DISPATCH_VAR = "CODERABBIT_DISPATCH"
 CODERABBIT_LOGINS = frozenset({"coderabbitai[bot]", "coderabbitai"})
@@ -391,20 +396,21 @@ def classify_pr(
     saw_change_stack = False
     covered_from_stack: Optional[str] = None
 
-    events: list[tuple[str, str, str]] = []
+    # (login, body, when, has_authoritative_commit_id)
+    events: list[tuple[str, str, str, bool]] = []
     for comment in comments:
         user = comment.get("user") or comment.get("author") or {}
         clogin = str(user.get("login") or "")
         body = str(comment.get("body") or "")
         when = str(comment.get("created_at") or comment.get("createdAt") or "")
-        events.append((clogin, body, when))
+        events.append((clogin, body, when, False))
     for review in reviews:
         user = review.get("user") or {}
         clogin = str(user.get("login") or "")
         body = str(review.get("body") or "")
         when = str(review.get("submitted_at") or review.get("submittedAt") or "")
         commit_id = str(review.get("commit_id") or review.get("commitId") or "")
-        events.append((clogin, body, when))
+        events.append((clogin, body, when, bool(commit_id)))
         if is_coderabbit_login(clogin) and commit_id and not body_is_rate_limit(body):
             prior += 1
             if _newer(last_at, when) or last_sha is None:
@@ -412,15 +418,22 @@ def classify_pr(
                 last_at = when
 
     # Comments can carry pause / coverage / budget even when reviews do not.
+    #
+    # Body sha markers are only read off events that have NO authoritative
+    # commit_id. A review object's commit_id is the fact; a "between X and Y"
+    # phrase in its own body is prose about the same event. Today that prose
+    # cannot win anyway (equal timestamps make _newer false), but that is an
+    # accident of timestamp equality, not a rule — so make the precedence
+    # structural instead.
     comment_review_count = 0
-    for clogin, body, when in events:
+    for clogin, body, when, authoritative in events:
         if not is_coderabbit_login(clogin):
             continue
         if body_is_paused(body):
             paused = True
         if "review_stack_entry" in body or "change-stack" in body.lower():
             saw_change_stack = True
-        if body_is_rate_limit(body):
+        if body_is_rate_limit(body) or authoritative:
             continue
         covered = _RE_COVERED_COMMIT.findall(body or "")
         between = _RE_BETWEEN_COMMITS.findall(body or "")
@@ -778,12 +791,23 @@ class GhError(RuntimeError):
 
 
 def gh_json(args: Sequence[str]) -> Any:
-    proc = subprocess.run(
-        ["gh", *args],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    """Run `gh` and parse its stdout as JSON.
+
+    The timeout is load-bearing: fetch_snapshot makes one call per repo plus
+    per eligible PR, and a single stalled call would otherwise hang until the
+    15-minute workflow timeout and produce no report at all. A timeout is
+    raised as GhError, so per-repo isolation turns it into one skipped repo.
+    """
+    try:
+        proc = subprocess.run(
+            ["gh", *args],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=GH_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise GhError(f"gh timed out after {GH_TIMEOUT_SECONDS}s: {' '.join(args)}") from exc
     if proc.returncode != 0:
         err = (proc.stderr or proc.stdout or "").strip() or f"gh exited {proc.returncode}"
         raise GhError(err)
@@ -809,12 +833,18 @@ def fetch_snapshot() -> tuple[
        all. Every per-repo and per-PR call is isolated; failures are collected
        and rendered, and the rest of the fleet is still ranked. Only the
        top-level repo enumeration is fatal — without it there is nothing to do.
-    2. **No N+1 on ineligible PRs.** Comments and reviews cost two requests per
-       PR. Drafts, Dependabot, GitHub App authors and non-allowlisted forks are
-       dropped from the PR-list row first, so those requests are never made.
-       Consequence, deliberately: budget footers are only harvested from
-       eligible PRs — which is where CodeRabbit posts them anyway, since the
-       shipped yaml has `drafts: false` and ignores the bot authors.
+    2. **Half the N+1.** Comments and reviews cost two requests per PR, against
+       every open PR on every owned repo. Reviews are only fetched for PRs that
+       survive the pre-filter, since a PR that can never be a candidate has no
+       use for its review objects.
+
+       Comments are still fetched for *every* PR, on purpose. They are the only
+       budget-footer source, and the pre-filtered PRs are exactly the ones most
+       likely to carry the freshest footer today: the org CodeRabbit dashboard
+       has not been flipped yet, so incrementals still fire on Dependabot and
+       draft PRs. Skipping those reads would narrow the one signal that already
+       fails closed — the trade the shipped yaml eventually makes safe, but not
+       while the org UI is still shotgunning.
     """
     errors: list[str] = []
     repos = gh_json(
@@ -872,22 +902,23 @@ def fetch_snapshot() -> tuple[
         pulls_by_repo[nwo] = pulls
         for pr in pulls:
             number = int(pr.get("number") or 0)
-            if prefilter_skip_reason(repo_name=name, is_fork=is_fork, pr=pr):
-                # Skip reason is already decided; comments/reviews cannot change it.
-                comments_by_pr[(nwo, number)] = []
-                reviews_by_pr[(nwo, number)] = []
-                continue
+            eligible = prefilter_skip_reason(repo_name=name, is_fork=is_fork, pr=pr) is None
             comments, err = _fetch_list(f"repos/{nwo}/issues/{number}/comments")
             if err:
                 errors.append(f"`{nwo}#{number}`: comments unreadable ({err}) — PR skipped")
                 pulls_by_repo[nwo] = [p for p in pulls_by_repo[nwo] if p is not pr]
+                continue
+            comments_by_pr[(nwo, number)] = comments
+            if not eligible:
+                # Its skip reason is already decided; review objects cannot
+                # change it. The comments above still feed the budget parser.
+                reviews_by_pr[(nwo, number)] = []
                 continue
             reviews, err = _fetch_list(f"repos/{nwo}/pulls/{number}/reviews")
             if err:
                 errors.append(f"`{nwo}#{number}`: reviews unreadable ({err}) — PR skipped")
                 pulls_by_repo[nwo] = [p for p in pulls_by_repo[nwo] if p is not pr]
                 continue
-            comments_by_pr[(nwo, number)] = comments
             reviews_by_pr[(nwo, number)] = reviews
     return repos, pulls_by_repo, comments_by_pr, reviews_by_pr, errors
 

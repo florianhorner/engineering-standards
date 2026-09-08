@@ -122,6 +122,19 @@ def would_review(report: crd.Report):
     return [r for r in report.prs if r.verdict == crd.OUTCOME_WOULD_REVIEW]
 
 
+def base_env(**extra) -> dict:
+    """Environment for the shell tests.
+
+    GITHUB_STEP_SUMMARY is blanked: the suite runs under GitHub Actions, and
+    both coderabbit-dispatch-remote.sh and the engine append their markdown to
+    whatever that variable points at. Inheriting it would splice fixture
+    `WOULD_REVIEW` reports into the real test job's summary.
+    """
+    env = {**os.environ, "GITHUB_STEP_SUMMARY": ""}
+    env.update(extra)
+    return env
+
+
 class ParseBudgetTest(unittest.TestCase):
     def test_1114_footer_has_remaining_but_no_seven_day_count(self):
         b = crd.parse_budget(FOOTER_1114)
@@ -458,7 +471,7 @@ class ShellIntegrationTest(unittest.TestCase):
             check=False,
             capture_output=True,
             text=True,
-            env={**os.environ, "CODERABBIT_DISPATCH_ROOT": str(root)},
+            env=base_env(CODERABBIT_DISPATCH_ROOT=str(root)),
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("DISABLED", proc.stdout)
@@ -505,13 +518,12 @@ class ShellIntegrationTest(unittest.TestCase):
         gh.write_text(GH_SHIM.lstrip())
         os.chmod(gh, os.stat(gh).st_mode | stat.S_IEXEC)
 
-        env = {
-            **os.environ,
-            "PATH": str(bindir) + os.pathsep + os.environ.get("PATH", ""),
-            "CODERABBIT_DISPATCH_ROOT": str(root),
-            "CR_DISPATCH_FIXTURES": str(fx),
-            "CODERABBIT_DISPATCH": "1",
-        }
+        env = base_env(
+            PATH=str(bindir) + os.pathsep + os.environ.get("PATH", ""),
+            CODERABBIT_DISPATCH_ROOT=str(root),
+            CR_DISPATCH_FIXTURES=str(fx),
+            CODERABBIT_DISPATCH="1",
+        )
         proc = subprocess.run(
             ["bash", str(root / "coderabbit-dispatch-remote.sh")],
             check=False,
@@ -567,14 +579,13 @@ class ShellIntegrationTest(unittest.TestCase):
         return bindir
 
     def _run_shell(self, root, bindir, fx, **extra):
-        env = {
-            **os.environ,
-            "PATH": str(bindir) + os.pathsep + os.environ.get("PATH", ""),
-            "CODERABBIT_DISPATCH_ROOT": str(root),
-            "CR_DISPATCH_FIXTURES": str(fx),
-            "CODERABBIT_DISPATCH": "1",
+        env = base_env(
+            PATH=str(bindir) + os.pathsep + os.environ.get("PATH", ""),
+            CODERABBIT_DISPATCH_ROOT=str(root),
+            CR_DISPATCH_FIXTURES=str(fx),
+            CODERABBIT_DISPATCH="1",
             **extra,
-        }
+        )
         return subprocess.run(
             ["bash", str(root / "coderabbit-dispatch-remote.sh")],
             check=False,
@@ -608,18 +619,26 @@ class ShellIntegrationTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
         calls = log.read_text().splitlines()
         api = [c for c in calls if c.startswith("api ")]
-        # Only tools#3 and blocked#5 are eligible: 2 PRs x (comments + reviews).
-        self.assertEqual(len(api), 4, "\n".join(api))
-        for skipped in ("tools/issues/1", "tools/issues/2", "core/issues/8"):
+        comments = [c for c in api if "/comments" in c]
+        reviews = [c for c in api if "/reviews" in c]
+        # Comments are read for every open PR — they are the only budget-footer
+        # source, and Dependabot/draft PRs carry the freshest footers while the
+        # org dashboard still shotguns incrementals.
+        self.assertEqual(len(comments), 5, "\n".join(api))
+        # Reviews only for the two PRs that survive the pre-filter. A PR that
+        # can never be a candidate has no use for its review objects.
+        self.assertEqual(len(reviews), 2, "\n".join(api))
+        for ineligible in ("tools/pulls/1/", "tools/pulls/2/", "core/pulls/8/"):
             self.assertFalse(
-                [c for c in api if skipped in c], f"fetched comments for {skipped}"
+                [c for c in reviews if ineligible in c],
+                f"fetched reviews for pre-filtered {ineligible}",
             )
-        self.assertTrue([c for c in api if "per_page=100" in c], "\n".join(api))
+        self.assertTrue(all("per_page=100" in c for c in api), "\n".join(api))
 
     def test_bootstrap_vendors_coderabbit_template(self):
         text = (ROOT / "bootstrap-repo.sh").read_text(encoding="utf-8")
         self.assertIn("templates/.coderabbit.yaml", text)
-        self.assertIn(".coderabbit.yaml", text)
+        self.assertIn('CODERABBIT_YAML_PATH=".coderabbit.yaml"', text)
         tmpl = (ROOT / "templates" / ".coderabbit.yaml").read_text(encoding="utf-8")
         self.assertIn("auto_incremental_review: false", tmpl)
         self.assertIn("enabled: true", tmpl)
@@ -786,6 +805,9 @@ class WorkflowShadowContractTest(unittest.TestCase):
         self.assertIn("contents: read", text)
         self.assertIn("pull-requests: read", text)
         self.assertIsNone(re.search(r"(?m)^\s+[a-z-]+:\s*write\s*$", text))
+        # `permissions: write-all` grants every scope without matching the
+        # per-scope pattern above.
+        self.assertNotIn("write-all", text)
         self.assertIn("vars.CODERABBIT_DISPATCH != '0'", text)
         self.assertIn('cron: "7 * * * *"', text)
         self.assertIn("ubuntu-latest", text)
@@ -798,7 +820,12 @@ class WorkflowShadowContractTest(unittest.TestCase):
         shell = (ROOT / "coderabbit-dispatch-remote.sh").read_text(encoding="utf-8")
         for text in (engine, shell):
             self.assertNotIn("gh pr comment", text)
-            self.assertNotIn("gh api -X POST", text)
+            # `-X POST`, `-XPOST` and `--method POST` are the same call; a
+            # literal-substring check only caught the first spelling.
+            self.assertIsNone(
+                re.search(r"gh api\b[^\n]*(-X\s*=?\s*POST|--method(?:=|\s+)POST)", text),
+                "engine/shell must stay report-only",
+            )
             self.assertNotIn("gh label", text)
         self.assertNotIn("add_argument(\"--apply\"", engine)
 
