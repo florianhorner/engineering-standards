@@ -11,6 +11,7 @@ Reusable commit-policy checks, Home Assistant installation-documentation checks,
 - **[validator/](validator/)** — Python hook generator (`generate-hook.py`) that emits the `commit-msg` hook from `specs/commit-rules.json`.
 - **[templates/](templates/)** — Optional reference configurations, reviewed and installed separately.
 - **[specs/coderabbit-dispatch-spec.md](specs/coderabbit-dispatch-spec.md)** — Shadow leftover dispatcher: at most one later CodeRabbit review per hour when the 7-day included count is known and under 35.
+- **[docs/coderabbit-dispatch-operator.md](docs/coderabbit-dispatch-operator.md)** — How to turn that dispatcher on (`CODERABBIT_DISPATCH=1`), read a tick, kill it, and keep CodeRabbit org yaml in sync.
 
 ### HA app docs standard
 
@@ -56,9 +57,9 @@ Team Fair Usage is per developer and does not bank unused hourly slots. Shotgun 
 - 7-day ceiling 35 included reviews; fail closed if the count cannot be read. Does not spend leftover hourly slots just because they exist.
 - CodeRabbit's newest footer sometimes omits the 7-day integer, so the count is carried forward from the newest footer that had one, within a 24h window and labelled with its age. Outside the window the job holds.
 - Per-repo and per-PR read failures are isolated and reported under **Partial data**; one 403 or stalled `gh` call does not abort the tick.
-- Kill switches: delete `.github/coderabbit-dispatch.enabled`, or set repository variable `CODERABBIT_DISPATCH` to literal `0`.
+- Kill switches: delete `.github/coderabbit-dispatch.enabled`, or set repository variable `CODERABBIT_DISPATCH` to literal `0`. Unset is also off: create `CODERABBIT_DISPATCH=1` or the hourly job never starts.
 
-**[specs/coderabbit-dispatch-spec.md](specs/coderabbit-dispatch-spec.md)** is the locked product. Run `bash coderabbit-dispatch-remote.sh` (needs `gh`). Tests: `python3 -m unittest discover -s tests -p 'test_*.py'`.
+**[specs/coderabbit-dispatch-spec.md](specs/coderabbit-dispatch-spec.md)** is the locked product. **[docs/coderabbit-dispatch-operator.md](docs/coderabbit-dispatch-operator.md)** is the ops runbook. Run `bash coderabbit-dispatch-remote.sh` (needs `gh`). Tests: `python3 -m unittest discover -s tests -p 'test_*.py'`.
 
 `templates/.coderabbit.yaml` is an optional reference (incrementals off, bot authors including Dependabot ignored, drafts off, first review still on). Follow the [separate installation procedure](templates/README.md#optional-coderabbit-setup); bootstrap never copies or refreshes it. Verify the organization dashboard and effective repository settings: incrementals disabled, bot authors ignored, drafts excluded, and automatic first reviews enabled. Bootstrap does not change organization settings. Do not turn auto-review fully off or add a label-only gate that would starve first reviews.
 

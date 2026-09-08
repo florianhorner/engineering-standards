@@ -38,8 +38,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     # Cheap half of the kill switch: no checkout when the repo variable is
-    # literal 0. The enable file is enforced inside coderabbit-dispatch-remote.sh
-    # so "off" means off from every invocation path, not just this `if:`.
+    # literal 0. GitHub coerces an *unset* var to 0 here, so the job skips
+    # until CODERABBIT_DISPATCH=1 exists (see docs/coderabbit-dispatch-operator.md).
+    # The enable file is enforced inside coderabbit-dispatch-remote.sh so
+    # "off" means off from every invocation path, not just this `if:`.
     if: github.repository == 'florianhorner/engineering-standards' && vars.CODERABBIT_DISPATCH != '0'
     steps:
       - name: Checkout
