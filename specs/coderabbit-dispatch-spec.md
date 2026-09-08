@@ -4,7 +4,7 @@ Central, report-only ranker for **later** CodeRabbit reviews. First reviews stay
 
 Quota is per GitHub identity. The scheduler lives in this repo, not in mammamiradio and not as N per-repo workflows.
 
-Ops runbook (kill switches, GitHub variable, org dashboard vs yaml, how to read a tick): [`docs/coderabbit-dispatch-operator.md`](../docs/coderabbit-dispatch-operator.md).
+Enable/disable and where the job runs: [`docs/coderabbit-dispatch-operator.md`](../docs/coderabbit-dispatch-operator.md).
 
 ## Product (locked)
 

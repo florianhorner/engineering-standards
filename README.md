@@ -11,7 +11,7 @@ Reusable commit-policy checks, Home Assistant installation-documentation checks,
 - **[validator/](validator/)** — Python hook generator (`generate-hook.py`) that emits the `commit-msg` hook from `specs/commit-rules.json`.
 - **[templates/](templates/)** — Optional reference configurations, reviewed and installed separately.
 - **[specs/coderabbit-dispatch-spec.md](specs/coderabbit-dispatch-spec.md)** — Shadow leftover dispatcher: at most one later CodeRabbit review per hour when the 7-day included count is known and under 35.
-- **[docs/coderabbit-dispatch-operator.md](docs/coderabbit-dispatch-operator.md)** — How to turn that dispatcher on (`CODERABBIT_DISPATCH=1`), read a tick, kill it, and keep CodeRabbit org yaml in sync.
+- **[docs/coderabbit-dispatch-operator.md](docs/coderabbit-dispatch-operator.md)** — Enable, disable, and find the hourly job.
 
 ### HA app docs standard
 
