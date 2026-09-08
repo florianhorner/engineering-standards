@@ -229,14 +229,19 @@ else:
         self.assertEqual(self.hook.read_text(), "#!/bin/sh\nexit 0\n")
 
     def test_remote_report_never_reads_or_prints_private_repositories(self):
+        summary = self.base / "job-summary.md"
+        summary.write_text("preserve\n")
+        self.env["GITHUB_STEP_SUMMARY"] = str(summary)
         result = subprocess.run(["bash", str(ROOT / "fleet-audit-remote.sh")],
-                                env=self.env, capture_output=True, text=True)
+                                env={**self.env, "GITHUB_STEP_SUMMARY": ""},
+                                capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("public-example", result.stdout)
         self.assertNotIn("private-example", result.stdout)
         self.assertNotIn("unknown-example", result.stdout)
         self.assertNotIn("private-example", self.calls.read_text())
         self.assertNotIn("unknown-example", self.calls.read_text())
+        self.assertEqual(summary.read_text(), "preserve\n")
 
     def test_write_failure_restores_all_destinations(self):
         source = (ROOT / "bootstrap-repo.sh").read_text().split("<<'PY'\n", 1)[1]

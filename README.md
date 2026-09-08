@@ -60,7 +60,7 @@ Team Fair Usage is per developer and does not bank unused hourly slots. Shotgun 
 
 **[specs/coderabbit-dispatch-spec.md](specs/coderabbit-dispatch-spec.md)** is the locked product. Run `bash coderabbit-dispatch-remote.sh` (needs `gh`). Tests: `python3 -m unittest discover -s tests -p 'test_*.py'`.
 
-`templates/.coderabbit.yaml` is the durable fleet copy (incrementals off, Dependabot ignored, drafts off, first review still on). It requires separate, explicit installation; bootstrap never copies or refreshes it. **The CodeRabbit org dashboard is the live kill for incrementals on mammamiradio today** — an agent cannot click that UI. Yaml without the org click is not enough while org UI still has shotgun incrementals on. Do not turn auto-review fully off and do not add a label-only gate that would starve first reviews.
+`templates/.coderabbit.yaml` is an optional reference (incrementals off, bot authors including Dependabot ignored, drafts off, first review still on). Follow the [separate installation procedure](templates/README.md#optional-coderabbit-setup); bootstrap never copies or refreshes it. Verify the organization dashboard and effective repository settings: incrementals disabled, bot authors ignored, drafts excluded, and automatic first reviews enabled. Bootstrap does not change organization settings. Do not turn auto-review fully off or add a label-only gate that would starve first reviews.
 
 ## Why a public repo
 
