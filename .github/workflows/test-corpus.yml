@@ -54,7 +54,7 @@ jobs:
       - name: Run validator unit tests
         run: python3 -m unittest discover -s validator -p 'test_*.py'
 
-      - name: Run coderabbit-dispatch tests
+      - name: Run installer and dispatcher integration tests
         run: python3 -m unittest discover -s tests -p 'test_*.py'
 
       - name: Run validator against test corpus

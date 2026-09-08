@@ -635,10 +635,9 @@ class ShellIntegrationTest(unittest.TestCase):
             )
         self.assertTrue(all("per_page=100" in c for c in api), "\n".join(api))
 
-    def test_bootstrap_vendors_coderabbit_template(self):
+    def test_coderabbit_template_is_separate_from_bootstrap(self):
         text = (ROOT / "bootstrap-repo.sh").read_text(encoding="utf-8")
-        self.assertIn("templates/.coderabbit.yaml", text)
-        self.assertIn('CODERABBIT_YAML_PATH=".coderabbit.yaml"', text)
+        self.assertNotIn("templates/.coderabbit.yaml", text)
         tmpl = (ROOT / "templates" / ".coderabbit.yaml").read_text(encoding="utf-8")
         self.assertIn("auto_incremental_review: false", tmpl)
         self.assertIn("enabled: true", tmpl)

@@ -49,11 +49,11 @@ Comments and reviews cost two requests per PR, against every open PR on every ow
 
 ## `.coderabbit.yaml`
 
-`templates/.coderabbit.yaml` is the durable fleet copy (`auto_review.enabled: true`, `auto_incremental_review: false`, `auto_pause_after_reviewed_commits: 1`, `drafts: false`, bot `ignore_usernames`). Bootstrap installs it into a consumer **only when that repo has no unmarked hand-written file**. The `# BEGIN/END: engineering-standards-coderabbit` markers are a provenance stamp, not a section boundary: a stamped file is replaced wholesale on the next bootstrap run. Delete the `# BEGIN:` line to pin a repo's own copy.
+`templates/.coderabbit.yaml` is an optional reference (`auto_review.enabled: true`, `auto_incremental_review: false`, `auto_pause_after_reviewed_commits: 1`, `drafts: false`, bot `ignore_usernames`). Use the [separate installation procedure](../templates/README.md#optional-coderabbit-setup) when explicitly adopting CodeRabbit. Bootstrap does not copy or refresh CodeRabbit configuration; existing consumer and organization settings remain unchanged.
 
-The CodeRabbit **org dashboard** is the live kill for incrementals on mammamiradio today. An agent cannot click that UI. After the yaml lands, flip org UI (incrementals off, Dependabot ignored) so Fair Usage stops burning on every push. Yaml without the org click is not enough while org UI still has shotgun incrementals on.
+Verify organization dashboard defaults and effective repository settings: automatic first reviews enabled, incrementals disabled, drafts excluded, and bot authors including Dependabot ignored. Do not infer the live settings from this document or from a successful bootstrap run.
 
-Do not turn auto-review fully off. Do not add a label-only gate in this file — that would starve first reviews before org UI is clicked.
+Do not turn auto-review fully off or add a label-only gate in this file; first reviews must remain automatic for eligible PRs.
 
 ## Follow-up (not this change)
 

@@ -1,29 +1,34 @@
-# templates/
+# Templates
 
-Drop-in files that `bootstrap-repo.sh` (Phase 4 deliverable) copies or appends into consumer repos. Each template is self-sufficient — cloud agents that only see per-repo files (Claude Code Cloud, Codex web) get the full cheat sheet without needing to leave the repo.
+Bootstrap now generates a fixed minimal CI caller and two installation metadata
+files directly. It does not download or automatically copy these templates.
 
-## What lands where
+`per-repo-commit-lint.yml` remains a reference caller. Replace its SHA placeholder
+with a reviewed full commit SHA before use.
 
-| Template | Lands at (in consumer repo) | Bootstrap step |
-|---|---|---|
-| `per-repo-CLAUDE-snippet.md` | Appended between `BEGIN/END` markers in `CLAUDE.md` | Step 6 — append to `CLAUDE.md` |
-| `per-repo-CONTRIBUTING-snippet.md` | Appended between `BEGIN/END` markers in `CONTRIBUTING.md` (created if missing) | Step 7 — drop/append `CONTRIBUTING.md` |
-| `AUTHOR-NOTES.md` | Copied as `AUTHOR-NOTES.md` at repo root, **only on Tier 1A fork branches** (e.g. `lightener-curve-editor`, `govee2mqtt-extended`) | Step 8 — fork-only copy |
-| `.commitlintrc.json` | Copied as `.commitlintrc.json` at repo root | Step 2 — drop commitlint config |
-| `per-repo-commit-lint.yml` | Copied as `.github/workflows/commit-lint.yml` (5-line includer; bootstrap script resolves `@v1` to the actual SHA-pinned ref) | Step 3 — drop CI includer |
-| `.coderabbit.yaml` | Copied as `.coderabbit.yaml` when missing; refreshed in place when the engineering-standards markers are present; an unmarked hand-written file is left untouched | Step 5 — CodeRabbit auto-review (first review on, incrementals off) |
-| `dependabot-snippet.yml` | Nothing — reference only. Step 4 **generates** `.github/dependabot.yml` from the manifests the target repo tracks (`git ls-files`), one block per ecosystem with every directory listed | Step 4 — generate dependabot config |
+The contributor and author-note templates contain optional public contribution
+guidance. Review them for the receiving repository before copying. The legacy
+commitlint, Dependabot and CodeRabbit templates are separate opt-in configurations;
+bootstrap neither installs nor refreshes them.
 
-## Idempotency
+## Optional CodeRabbit setup
 
-Every template that gets appended (CLAUDE.md, CONTRIBUTING.md) is wrapped in `<!-- BEGIN: commit-message-standards --> ... <!-- END: commit-message-standards -->` markers. Re-running the bootstrap script replaces the section in place rather than double-appending.
+For an explicitly approved repository, separately confirm that the CodeRabbit
+GitHub App is authorized to review that repository. Bootstrap does not install or
+authorize the App.
 
-`.coderabbit.yaml` is different and deliberately so. It is a whole config file, not a snippet inside a host file, so `# BEGIN/END: engineering-standards-coderabbit` is a **provenance stamp, not a section boundary**: bootstrap replaces the *entire file* when the stamp is present. Local edits to a stamped `.coderabbit.yaml` are overwritten on the next run — delete the `# BEGIN:` line to opt a repo out. An unmarked hand-written CodeRabbit config is never touched.
+On a clean feature branch, create `.coderabbit.yaml` using only the `reviews:`
+mapping from the [reference configuration](.coderabbit.yaml). Review the settings
+for that repository and omit template comments and operational notes. If a
+configuration already exists, merge the selected settings into it; do not replace
+the file wholesale. Review the diff and obtain publication approval before pushing.
 
-## SHA pinning
+Verify `reviews.auto_review.enabled: true` for automatic first reviews, with
+incrementals disabled, drafts excluded, and bot authors including Dependabot
+ignored. Check organization dashboard defaults and effective repository settings
+as well. See the [automatic review controls](https://docs.coderabbit.ai/configuration/auto-review)
+for the setting definitions. Do not disable auto-review or introduce a label-only
+gate. No live setting is implied by this reference or by bootstrap completion.
 
-Files that reference the engineering-standards repo (`per-repo-commit-lint.yml`, `.commitlintrc.json` indirectly via `.config/commit-rules.json`) use `@v1` as a placeholder. The bootstrap script resolves this to a concrete SHA at install time, so consumers are never broken by an unintended upstream change.
-
-## Editing
-
-These templates are themselves the source of truth for what bootstrap drops. Hand-edits to the deployed copies in consumer repos will be overwritten on the next `bootstrap-repo.sh` run — change the template here, push, then re-bootstrap consumers.
+Changing a template here does not update any consumer. Existing generated copies
+and old public history require a separate migration or cleanup.

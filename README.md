@@ -1,6 +1,6 @@
 # engineering-standards
 
-Florian's public engineering standards. Single source of truth for commit message hygiene, Home Assistant app install-docs, code review checklists, and contribution conventions across every repo and AI tool he uses (Claude Code, Conductor, Codex web, Claude Code Cloud, manual git push).
+Reusable commit-policy checks, Home Assistant installation-documentation checks, and contribution conventions.
 
 ## What's here
 
@@ -9,7 +9,7 @@ Florian's public engineering standards. Single source of truth for commit messag
 - **[docs/commit-system-operator.md](docs/commit-system-operator.md)** — How to bootstrap a repo, normal flow, override flow, troubleshooting.
 - **[.github/workflows/commit-lint-reusable.yml](.github/workflows/commit-lint-reusable.yml)** — Content-addressed, read-only reusable workflow consumer repos call via an exact-SHA `uses:` pin.
 - **[validator/](validator/)** — Python hook generator (`generate-hook.py`) that emits the `commit-msg` hook from `specs/commit-rules.json`.
-- **[templates/](templates/)** — Drop-in files the bootstrap script copies into consumer repos, including the CodeRabbit auto-review yaml (first review on, incrementals off).
+- **[templates/](templates/)** — Optional reference configurations, reviewed and installed separately.
 - **[specs/coderabbit-dispatch-spec.md](specs/coderabbit-dispatch-spec.md)** — Shadow leftover dispatcher: at most one later CodeRabbit review per hour when the 7-day included count is known and under 35.
 
 ### HA app docs standard
@@ -25,18 +25,27 @@ Florian's public engineering standards. Single source of truth for commit messag
 - `THIRD-PARTY-CLONE` — origin owner isn't `florianhorner` (e.g. a local clone of someone else's project). Never touched.
 - `OWN` / `OWN-FORK` — owned by `florianhorner`, checked against the commit-message-standards system: `MISSING` (no `.github/workflows/commit-lint.yml`), `STALE(<N>d)` (SHA pin behind upstream `main`, age from the repo's own `.config/commit-rules.meta.json`), or `FRESH`.
 
-```bash
-# Dry-run: print the compliance table, write nothing.
-bash fleet-audit.sh
+Audits are inventory reports, not requirements to install anything. STALE compares
+metadata to main even when only unrelated source files changed.
 
-# Apply: also auto-bootstrap every OWN repo classified MISSING.
-# STALE (any bucket), OWN-FORK (any status), and THIRD-PARTY-CLONE are never
-# auto-applied — the script prints the exact bootstrap-repo.sh command to run
-# by hand instead.
-bash fleet-audit.sh --apply
+```bash
+bash fleet-audit.sh
 ```
 
-**Convention:** since there's no single canonical repo-creation entrypoint to hook this into automatically yet, run `fleet-audit.sh --apply` manually right after `gh repo create` for any brand-new repo.
+Fleet `--apply` is removed. To install, select one clean feature checkout:
+
+```bash
+bash bootstrap-repo.sh /path/to/feature-checkout --repo florianhorner/example --ref <reviewed-full-sha>
+```
+
+The installer writes only the CI caller and two minimal metadata files. It rejects
+default branches, forks, ambiguous ownership and existing unmanaged files.
+Public and private repositories receive the same minimal payload. Hooks,
+agent instructions, proof logs, contributor files, and bot configuration are
+never installed automatically. See the [operator guide](docs/commit-system-operator.md).
+
+The remote audit omits private and unknown-visibility repositories from all
+output, including public issues and Actions summaries.
 
 ## CodeRabbit leftover dispatcher (shadow)
 
@@ -51,7 +60,7 @@ Team Fair Usage is per developer and does not bank unused hourly slots. Shotgun 
 
 **[specs/coderabbit-dispatch-spec.md](specs/coderabbit-dispatch-spec.md)** is the locked product. Run `bash coderabbit-dispatch-remote.sh` (needs `gh`). Tests: `python3 -m unittest discover -s tests -p 'test_*.py'`.
 
-`templates/.coderabbit.yaml` is the durable fleet copy (incrementals off, Dependabot ignored, drafts off, first review still on). Bootstrap installs it into a consumer when that repo has no unmarked hand-written file. **The CodeRabbit org dashboard is the live kill for incrementals on mammamiradio today** — an agent cannot click that UI. Yaml without the org click is not enough while org UI still has shotgun incrementals on. Do not turn auto-review fully off and do not add a label-only gate that would starve first reviews.
+`templates/.coderabbit.yaml` is an optional reference (incrementals off, bot authors including Dependabot ignored, drafts off, first review still on). Follow the [separate installation procedure](templates/README.md#optional-coderabbit-setup); bootstrap never copies or refreshes it. Verify the organization dashboard and effective repository settings: incrementals disabled, bot authors ignored, drafts excluded, and automatic first reviews enabled. Bootstrap does not change organization settings. Do not turn auto-review fully off or add a label-only gate that would starve first reviews.
 
 ## Why a public repo
 
