@@ -1,0 +1,4 @@
+{
+  "name": "engineering-standards",
+  "install": "npm ci"
+}
