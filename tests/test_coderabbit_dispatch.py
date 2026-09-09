@@ -807,7 +807,7 @@ class WorkflowShadowContractTest(unittest.TestCase):
         # `permissions: write-all` grants every scope without matching the
         # per-scope pattern above.
         self.assertNotIn("write-all", text)
-        self.assertIn("vars.CODERABBIT_DISPATCH != '0'", text)
+        self.assertIn("vars.CODERABBIT_DISPATCH == '1'", text)
         self.assertIn('cron: "7 * * * *"', text)
         self.assertIn("ubuntu-latest", text)
         self.assertNotIn("--github-issue", text)

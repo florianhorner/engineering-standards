@@ -4,6 +4,8 @@ Central, report-only ranker for **later** CodeRabbit reviews. First reviews stay
 
 Quota is per GitHub identity. The scheduler lives in this repo, not in mammamiradio and not as N per-repo workflows.
 
+Enable/disable and where the job runs: [`docs/coderabbit-dispatch-operator.md`](../docs/coderabbit-dispatch-operator.md).
+
 ## Product (locked)
 
 1. **First review** is automatic via CodeRabbit (`reviews.auto_review.enabled: true` on open/ready). Starve-proof if this dispatcher is down.
@@ -28,6 +30,8 @@ Either one disables the dispatcher (enforced in `coderabbit-dispatch-remote.sh`,
 
 - delete `.github/coderabbit-dispatch.enabled`
 - set repository variable `CODERABBIT_DISPATCH` to literal `0`
+
+The on-switch is the enable file **plus** repository variable `CODERABBIT_DISPATCH=1`. The Actions job `if:` is `vars.CODERABBIT_DISPATCH == '1'` (unset, empty, and `0` skip). The script treats unset as on. See the operator manual.
 
 ## Budget signal
 
