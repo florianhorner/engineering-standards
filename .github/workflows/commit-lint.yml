@@ -12,4 +12,4 @@ permissions:
 
 jobs:
   commit-lint:
-    uses: florianhorner/engineering-standards/.github/workflows/commit-lint-reusable.yml@1767592a5b49d7a1324e2fb2133349b0045c3f2d
+    uses: florianhorner/engineering-standards/.github/workflows/commit-lint-reusable.yml@a6e063b4cde4867bfbb374a778a54cef6512f6ae
