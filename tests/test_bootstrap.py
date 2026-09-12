@@ -58,7 +58,7 @@ class BootstrapTests(unittest.TestCase):
         self.env["TEST_CALLS"] = str(self.calls)
         gh = self.bin / "gh"
         gh.write_text('''#!/usr/bin/env python3
-import json, os, subprocess, sys
+import base64, json, os, subprocess, sys
 from pathlib import Path
 args = sys.argv[1:]
 with open(os.environ["TEST_CALLS"], "a") as f: f.write(json.dumps(args) + "\\n")
@@ -76,7 +76,7 @@ elif args[:1] == ["api"] and args[1].endswith("/commits/main"):
     print("a" * 40)
 elif args[:1] == ["api"] and len(args) == 4:
     sys.exit(1)
-elif args[:1] == ["api"] and len(args) == 2 and "/contents/" in args[1]:
+elif args[:1] == ["api"] and len(args) in (2, 3) and "/contents/" in args[1]:
     if os.environ.get("TEST_SOURCE_FAIL"): sys.exit(1)
     if os.environ.get("TEST_SWITCH_BRANCH"):
         subprocess.run(["git", "switch", os.environ["TEST_SWITCH_BRANCH"]],
@@ -84,7 +84,14 @@ elif args[:1] == ["api"] and len(args) == 2 and "/contents/" in args[1]:
     if os.environ.get("TEST_SOURCE_ORIGIN"):
         subprocess.run(["git", "remote", "set-url", "origin", os.environ["TEST_SOURCE_ORIGIN"]],
                        capture_output=True, check=True)
-    print(json.dumps({"type": "file", "sha": "b" * 40}))
+    # fleet-audit-remote.sh reads with --include and decodes the payload, so
+    # serve real headers and base64 there. bootstrap-repo.sh passes neither
+    # flag and reads only type/sha, which are unchanged.
+    if "--include" in args:
+        sys.stdout.write("HTTP/2.0 200 OK\\r\\nContent-Type: application/json\\r\\n\\r\\n")
+    body = "name: commit-lint\\n" if args[1].endswith(".yml") else json.dumps({"sha_pin": "a" * 40})
+    print(json.dumps({"type": "file", "sha": "b" * 40, "encoding": "base64",
+                      "content": base64.b64encode(body.encode()).decode()}))
 else:
     sys.exit(99)
 ''')
