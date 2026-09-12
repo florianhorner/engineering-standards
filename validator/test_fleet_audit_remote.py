@@ -72,7 +72,12 @@ class FleetAuditRemoteTest(unittest.TestCase):
         self.report = self.directory / "fleet-audit.json"
         self.calls = self.directory / "calls.jsonl"
         self.fixture = {
-            "repos": [{"nameWithOwner": REPO, "isFork": False, "isArchived": False}],
+            "repos": [{
+                "nameWithOwner": REPO,
+                "isFork": False,
+                "isArchived": False,
+                "visibility": "PUBLIC",
+            }],
             "responses": {
                 WORKFLOW: file_response("name: commit-lint\non: push\n"),
                 META: file_response(json.dumps({"sha_pin": UPSTREAM})),
@@ -175,10 +180,30 @@ class FleetAuditRemoteTest(unittest.TestCase):
                 self.assert_aborts_without_report()
 
     def test_malformed_inventory_aborts(self) -> None:
-        for raw in ("{", "{}", '[{}]', '[{"nameWithOwner":"other/repo","isFork":false,"isArchived":false}]'):
+        wrong_owner = ('[{"nameWithOwner":"other/repo","isFork":false,'
+                       '"isArchived":false,"visibility":"PUBLIC"}]')
+        for raw in ("{", "{}", '[{"visibility":"PUBLIC"}]', wrong_owner):
             with self.subTest(raw=raw):
                 self.fixture["inventory_raw"] = raw
                 self.assert_aborts_without_report()
+
+    def test_non_public_repos_are_not_read_or_reported(self) -> None:
+        # The report lands in a public issue and an Actions summary, so
+        # anything not provably PUBLIC is dropped before its contents are
+        # fetched. A malformed private row must not abort the audit either:
+        # the filter runs before the strict checks.
+        for visibility in ("PRIVATE", "INTERNAL", "public", None, 42):
+            with self.subTest(visibility=visibility):
+                repo = dict(self.fixture["repos"][0])
+                if visibility is None:
+                    repo.pop("visibility")
+                else:
+                    repo["visibility"] = visibility
+                self.fixture["repos"] = [repo]
+                result = self.run_audit()
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(self.report.read_text())["repos"], [])
+                self.assertNotIn(REPO, self.calls.read_text())
 
     def test_json_does_not_pollute_markdown_stdout(self) -> None:
         markdown = self.run_audit([])

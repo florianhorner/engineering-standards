@@ -1,6 +1,6 @@
 # engineering-standards
 
-Florian's public engineering standards. Single source of truth for commit message hygiene, Home Assistant app install-docs, code review checklists, and contribution conventions across every repo and AI tool he uses (Claude Code, Conductor, Codex web, Claude Code Cloud, manual git push).
+Reusable commit-policy checks, Home Assistant installation-documentation checks, and contribution conventions.
 
 ## What's here
 
@@ -9,7 +9,9 @@ Florian's public engineering standards. Single source of truth for commit messag
 - **[docs/commit-system-operator.md](docs/commit-system-operator.md)** — How to bootstrap a repo, normal flow, override flow, troubleshooting.
 - **[.github/workflows/commit-lint-reusable.yml](.github/workflows/commit-lint-reusable.yml)** — Content-addressed, read-only reusable workflow consumer repos call via an exact-SHA `uses:` pin.
 - **[validator/](validator/)** — Python hook generator (`generate-hook.py`) that emits the `commit-msg` hook from `specs/commit-rules.json`.
-- **[templates/](templates/)** — Drop-in files the bootstrap script copies into consumer repos.
+- **[templates/](templates/)** — Optional reference configurations, reviewed and installed separately.
+- **[specs/coderabbit-dispatch-spec.md](specs/coderabbit-dispatch-spec.md)** — Shadow leftover dispatcher: at most one later CodeRabbit review per hour when the 7-day included count is known and under 35.
+- **[docs/coderabbit-dispatch-operator.md](docs/coderabbit-dispatch-operator.md)** — Enable, disable, and find the hourly job.
 
 ### HA app docs standard
 
@@ -24,18 +26,42 @@ Florian's public engineering standards. Single source of truth for commit messag
 - `THIRD-PARTY-CLONE` — origin owner isn't `florianhorner` (e.g. a local clone of someone else's project). Never touched.
 - `OWN` / `OWN-FORK` — owned by `florianhorner`, checked against the commit-message-standards system: `MISSING` (no `.github/workflows/commit-lint.yml`), `STALE(<N>d)` (SHA pin behind upstream `main`, age from the repo's own `.config/commit-rules.meta.json`), or `FRESH`.
 
-```bash
-# Dry-run: print the compliance table, write nothing.
-bash fleet-audit.sh
+Audits are inventory reports, not requirements to install anything. STALE compares
+metadata to main even when only unrelated source files changed.
 
-# Apply: also auto-bootstrap every OWN repo classified MISSING.
-# STALE (any bucket), OWN-FORK (any status), and THIRD-PARTY-CLONE are never
-# auto-applied — the script prints the exact bootstrap-repo.sh command to run
-# by hand instead.
-bash fleet-audit.sh --apply
+```bash
+bash fleet-audit.sh
 ```
 
-**Convention:** since there's no single canonical repo-creation entrypoint to hook this into automatically yet, run `fleet-audit.sh --apply` manually right after `gh repo create` for any brand-new repo.
+Fleet `--apply` is removed. To install, select one clean feature checkout:
+
+```bash
+bash bootstrap-repo.sh /path/to/feature-checkout --repo florianhorner/example --ref <reviewed-full-sha>
+```
+
+The installer writes only the CI caller and two minimal metadata files. It rejects
+default branches, forks, ambiguous ownership and existing unmanaged files.
+Public and private repositories receive the same minimal payload. Hooks,
+agent instructions, proof logs, contributor files, and bot configuration are
+never installed automatically. See the [operator guide](docs/commit-system-operator.md).
+
+The remote audit omits private and unknown-visibility repositories from all
+output, including public issues and Actions summaries.
+
+## CodeRabbit leftover dispatcher (shadow)
+
+Team Fair Usage is per developer and does not bank unused hourly slots. Shotgun auto-incrementals on every push burn the 7-day window; other repos starve. This repo hosts a **central, report-only** hourly job that ranks at most one later review across Florian's owned non-forks plus allowlisted forks (`lightener-studio`, `govee2mqtt-extended`).
+
+- First reviews stay automatic via CodeRabbit (`reviews.auto_review.enabled: true`). Incrementals are not automatic.
+- Shadow only: job summary. No comments, no labels, no GitHub App, no writes to other repos, no hourly issues.
+- 7-day ceiling 35 included reviews; fail closed if the count cannot be read. Does not spend leftover hourly slots just because they exist.
+- CodeRabbit's newest footer sometimes omits the 7-day integer, so the count is carried forward from the newest footer that had one, within a 24h window and labelled with its age. Outside the window the job holds.
+- Per-repo and per-PR read failures are isolated and reported under **Partial data**; one 403 or stalled `gh` call does not abort the tick.
+- Kill switches: delete `.github/coderabbit-dispatch.enabled`, or set repository variable `CODERABBIT_DISPATCH` to literal `0`. The hourly job `if:` requires `CODERABBIT_DISPATCH=1`; unset skips.
+
+**[specs/coderabbit-dispatch-spec.md](specs/coderabbit-dispatch-spec.md)** is the locked product. **[docs/coderabbit-dispatch-operator.md](docs/coderabbit-dispatch-operator.md)** is the ops runbook. Run `bash coderabbit-dispatch-remote.sh` (needs `gh`). Tests: `python3 -m unittest discover -s tests -p 'test_*.py'`.
+
+`templates/.coderabbit.yaml` is an optional reference (incrementals off, bot authors including Dependabot ignored, drafts off, first review still on). Follow the [separate installation procedure](templates/README.md#optional-coderabbit-setup); bootstrap never copies or refreshes it. Verify the organization dashboard and effective repository settings: incrementals disabled, bot authors ignored, drafts excluded, and automatic first reviews enabled. Bootstrap does not change organization settings. Do not turn auto-review fully off or add a label-only gate that would starve first reviews.
 
 ## Why a public repo
 

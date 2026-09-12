@@ -6,9 +6,10 @@
 # ~/conductor/workspaces — that only works because it runs on Florian's own
 # machine. A GitHub Actions cloud routine (or any hosted runner) has no
 # filesystem access to those paths, full stop. This script instead enumerates
-# token-visible repos via `gh repo list florianhorner` (limit 200), including
-# repos without a local checkout. This is NOT proof of full-fleet coverage:
-# the scheduled GITHUB_TOKEN cannot read other private repositories.
+# repos via `gh repo list` (limit 200), including repos without a local
+# checkout, and reports only the PUBLIC ones — the report can land in a public
+# issue or an Actions summary. This is NOT proof of full-fleet coverage: a
+# repository absent from the table may be private, unlisted or beyond the cap.
 #
 # Bucket model is simpler here than in fleet-audit.sh: `gh repo list
 # florianhorner` only ever returns repos florianhorner owns or has direct
@@ -23,7 +24,7 @@
 # This script is REPORT-ONLY. It never writes to any other repo, never calls
 # bootstrap-repo.sh, and has no --apply equivalent. If the report flags
 # something, fixing it is a separate, human-initiated action (either by hand
-# or via `fleet-audit.sh --apply` run locally).
+# through an explicitly selected feature checkout).
 #
 # --json emits the same classification as a machine-readable artifact, and is
 # the ONLY input a remediation agent should ever read. Rationale: the markdown
@@ -35,13 +36,15 @@
 # appended to after the fact.
 #
 # The per-repo `remediable` flag in that JSON is decided HERE, in code, not by
-# whatever reads it. It encodes fleet-audit.sh's note-5 policy verbatim:
-# only bucket OWN + status MISSING is auto-fixable; OWN-FORK never is (forks
-# carry AUTHOR-NOTES.md and upstream-tracking concerns), STALE never is for
-# any bucket (a SHA-pin refresh changes what CI enforces, so it stays a
-# deliberate visible action), and archived repos never enter the report at
-# all. Keeping that decision in the script means an agent consuming the
-# artifact has no policy left to interpret — it filters on a boolean.
+# whatever reads it. Only bucket OWN + status MISSING is eligible; OWN-FORK
+# never is (forks carry author notes and upstream-tracking concerns), STALE
+# never is for any bucket (a SHA-pin refresh changes what CI enforces, so it
+# stays a deliberate visible action), and archived repos never enter the
+# report at all. That rule came from fleet-audit.sh's --apply gate, which no
+# longer exists; this script is now the only place it is written down.
+# Keeping the decision here means an agent consuming the artifact has no
+# policy left to interpret — it filters on a boolean. Eligibility is not an
+# instruction to install: adoption stays a per-repository decision.
 #
 # Usage:
 #   bash fleet-audit-remote.sh                  # print markdown table to stdout
@@ -165,26 +168,33 @@ except (ValueError, KeyError, TypeError, AttributeError):
 # Enumerate Florian's real GitHub repos (owned or accessible), not a local
 # filesystem walk.
 # ---------------------------------------------------------------------------
-REPO_LIST_JSON="$(gh repo list florianhorner --limit 200 --json nameWithOwner,isFork,parent,isArchived)"
+REPO_LIST_JSON="$(gh repo list "$ENGSTD_OWNER" --limit 200 --json nameWithOwner,isFork,parent,isArchived,visibility)"
 
 # Parse before entering the loop: process-substitution failures otherwise get
 # lost, allowing an incomplete inventory to produce a successful report.
 REPO_ROWS="$(printf '%s' "$REPO_LIST_JSON" | python3 -c '
 import json, re, sys
+owner = sys.argv[1]
 try:
     repos = json.load(sys.stdin)
     if not isinstance(repos, list):
         raise ValueError("not a repository list")
     for r in repos:
+        # This report can enter public issues and Actions summaries. Omit
+        # private and unknown visibility even when the token can enumerate
+        # them. Filtering first also keeps the strict checks below scoped to
+        # rows that will actually be published.
+        if r.get("visibility") != "PUBLIC":
+            continue
         name = r["nameWithOwner"]
-        if not isinstance(name, str) or not re.fullmatch(r"florianhorner/[A-Za-z0-9_.-]+", name):
+        if not isinstance(name, str) or not re.fullmatch(re.escape(owner) + r"/[A-Za-z0-9_.-]+", name):
             raise ValueError("unexpected repository owner or name")
         if not isinstance(r["isFork"], bool) or not isinstance(r["isArchived"], bool):
             raise ValueError("invalid repository flags")
         print(name + "\t" + str(r["isFork"]).lower() + "\t" + str(r["isArchived"]).lower())
 except (ValueError, KeyError, TypeError):
     sys.exit("FAIL invalid repository inventory; audit stopped")
-')"
+' "$ENGSTD_OWNER")"
 
 # ---------------------------------------------------------------------------
 # Classify each repo. Rows: nameWithOwner|bucket|status|detail
@@ -272,10 +282,15 @@ rank_of() {
   esac
 }
 
+# Every "${arr[@]}" below is guarded on the count first. Bash only made
+# expanding an empty array under `set -u` legal in 4.4; on 3.2 (what macOS
+# ships) it is an unbound-variable abort, and the public-visibility filter
+# above makes a zero-row run easy to reach.
 SORTED_ROWS=()
 while IFS= read -r line; do
   SORTED_ROWS+=("$line")
 done < <(
+  [ "${#ROWS[@]}" -eq 0 ] && exit 0
   for row in "${ROWS[@]}"; do
     IFS='|' read -r name bucket status detail <<< "$row"
     printf '%d\t%s\t%s\n' "$(rank_of "$status")" "$name" "$row"
@@ -286,7 +301,7 @@ MISSING_COUNT=0; STALE_COUNT=0; FRESH_COUNT=0
 
 TABLE="| Repo | Bucket | Status | Detail |
 |---|---|---|---|"
-for row in "${SORTED_ROWS[@]}"; do
+for row in ${SORTED_ROWS[@]+"${SORTED_ROWS[@]}"}; do
   IFS='|' read -r name bucket status detail <<< "$row"
   case "$status" in
     MISSING*) MISSING_COUNT=$((MISSING_COUNT+1)) ;;
@@ -305,9 +320,9 @@ ${SUMMARY_LINE}
 
 ${TABLE}
 
-_Coverage: token-visible repositories only (limit 200); not proof of full-fleet coverage. The scheduled token cannot inspect other private repositories._
+_Public repositories only, at most 200 enumerated. A repository absent from this table is not evidence of compliance._
 
-_Report-only. This workflow never writes to any other repo. To fix a finding, run \`bootstrap-repo.sh\` locally (see fleet-audit.sh --apply) or ask Claude Code to do it in a local session._
+_Inventory is not an adoption requirement. Installation requires one explicit clean feature checkout: bootstrap-repo.sh TARGET --repo OWNER/REPO --ref SHA._
 EOF
 )"
 
@@ -323,15 +338,15 @@ fi
 # than by the consumer.
 # ---------------------------------------------------------------------------
 if [ -n "$JSON_PATH" ]; then
-  printf '%s\n' "${SORTED_ROWS[@]}" | python3 -c '
+  printf '%s\n' ${SORTED_ROWS[@]+"${SORTED_ROWS[@]}"} | python3 -c '
 import json, sys
 from datetime import datetime, timezone
 
 upstream_sha, out_path = sys.argv[1], sys.argv[2]
 
-# Policy mirrors fleet-audit.sh note 5. Order matters: the OWN+MISSING
-# allow-case is tested first, so every other combination falls through to a
-# block reason and nothing is remediable by default.
+# Order matters: the OWN+MISSING allow-case is tested first, so every other
+# combination falls through to a block reason and nothing is remediable by
+# default.
 #
 # FRESH is tested before OWN-FORK deliberately. Both are correct for a fresh
 # fork and neither is remediable, but "sha_pin already matches upstream" is
@@ -370,7 +385,7 @@ report = {
     "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     "upstream_sha": upstream_sha,
     "policy": {
-        "source": "fleet-audit.sh note 5",
+        "source": "fleet-audit-remote.sh (inherited from the removed fleet-audit.sh --apply gate)",
         "auto_remediable": "bucket OWN + status MISSING",
         "never_auto": [
             "OWN-FORK (any status)",

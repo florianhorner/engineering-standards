@@ -1,0 +1,53 @@
+# Hourly shadow dispatcher for CodeRabbit incrementals.
+#
+# Why this is a GitHub Actions workflow on ubuntu-latest, not a Claude Code
+# cloud routine and not a per-repo job in mammamiradio: same rationale as
+# fleet-audit-monthly.yml. A hosted runner enumerates `gh repo list
+# florianhorner`. Quota is per identity, so one central job in
+# engineering-standards sees every owned non-fork plus the allowlisted forks.
+# GITHUB_TOKEN is enough for shadow reads on public repos. There is no GitHub
+# App in this workflow — live cross-repo writes are a follow-up PR.
+#
+# REPORT-ONLY. Never comments, never labels, never writes to any other repo.
+# Job summary only — not an issue every hour (unlike monthly fleet-audit).
+name: CodeRabbit dispatch (shadow)
+
+on:
+  schedule:
+    # Minute 7 every hour. Off-the-hour to avoid the :00 stampede, same
+    # convention as fleet-audit-monthly.yml.
+    - cron: "7 * * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pull-requests: read
+  # PR comments live on the Issues API (`/issues/{n}/comments`), which is
+  # scoped by `issues`, not `pull-requests`. Only governs this repo's own PRs
+  # — cross-repo reads are public-only regardless — but without it the
+  # engineering-standards rows 403 and land in Partial data for no reason.
+  issues: read
+
+concurrency:
+  group: coderabbit-dispatch
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    name: shadow rank
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Cheap half of the on-switch: no checkout unless the repo variable is
+    # the literal 1. Unset, empty, and 0 all skip. The enable file is
+    # enforced inside coderabbit-dispatch-remote.sh so "off" means off from
+    # every invocation path, not just this `if:`.
+    if: github.repository == 'florianhorner/engineering-standards' && vars.CODERABBIT_DISPATCH == '1'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Rank one incremental (report-only)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CODERABBIT_DISPATCH: ${{ vars.CODERABBIT_DISPATCH }}
+        run: bash coderabbit-dispatch-remote.sh

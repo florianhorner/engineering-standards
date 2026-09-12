@@ -1,220 +1,101 @@
-# Commit System Operator Manual
+# Commit policy installation
 
-How to bootstrap, run, debug, and upgrade the commit-message standards system across Florian's repos. Audience: future-Florian, AI agents operating the system.
+Bootstrap prepares one explicitly selected consumer repository for commit-policy CI.
+It requires Python 3.9+, Git, authenticated GitHub CLI access, and a reviewed full
+40-character source commit SHA.
 
-For the format itself, see [`../specs/commit-message-spec.md`](../specs/commit-message-spec.md). This doc is about operating the *infrastructure*.
+## Install
 
----
-
-## Architecture
-
-```
-        ┌─────────────────────────────────────────────────┐
-        │  florianhorner/engineering-standards (PUBLIC)   │
-        │  - specs/commit-rules.json (SSOT)               │
-        │  - specs/commit-message-spec.md                 │
-        │  - validator/ (TS, single binary)               │
-        │  - .github/workflows/commit-lint-reusable.yml   │
-        │  - templates/ (for bootstrap-repo.sh)           │
-        └────────────────┬────────────────────────────────┘
-                         │ SHA-pinned
-                         ↓
-   ┌────────────────────────────────────────────────────────┐
-   │  Consumer repo (e.g. lightener, mammamiradio)          │
-   │                                                         │
-   │  Per-repo (vendored at bootstrap):                     │
-   │   .config/commit-rules.json (frozen at SHA)            │
-   │   .commitlintrc.json                                   │
-   │   .github/workflows/commit-lint.yml (5-line includer)  │
-   │   .github/dependabot.yml (commit-message.prefix=chore) │
-   │   CONTRIBUTING.md (cheat sheet for Codex web)          │
-   │   CLAUDE.md (skill routing + commit standards link)    │
-   │                                                         │
-   │  Generated artifact:                                    │
-   │   .git/hooks/commit-msg (generated from rules.json     │
-   │     by validator binary at bootstrap time)             │
-   └────────────────────────────────────────────────────────┘
-
-   Local laptop (separate from any specific repo):
-     ~/.git-hooks/commit-msg → calls validator binary
-     ~/.git-hooks/pre-push → augmented to revalidate range
-     ~/.claude/skills/commit/SKILL.md → /commit slash command
-     ~/.claude/CLAUDE.md → global rule with link to spec
-     ~/.commit-bypass.log → audit log for --no-verify uses
-```
-
-### Reusable workflow trust boundary
-
-Consumer repositories call the reusable workflow at an exact 40-character commit SHA. The job checks out the consumer merge commit as untrusted data in `consumer/`, checks out validator code, rules, and commitlint configuration from `job.workflow_repository` at `job.workflow_sha` in `trusted/`, then verifies that checkout's origin and `HEAD` before running policy. Scratch files live under a fresh `$RUNNER_TEMP` directory, third-party actions are full-SHA pinned, package installation disables lifecycle scripts, and the called workflow has no pull-request write permission.
-
-The workflow exposes `workflow_repository`, `workflow_ref`, and `workflow_sha` outputs so hosted fixtures can prove which immutable policy revision ran. A consumer's `.config/commit-rules.json` remains local installation metadata; CI does not execute or import policy from the PR head.
-
-When a change records branch commits as the primary and rollback workflow revisions, land it with a merge commit so both exact SHAs remain reachable from `main`. If the change is squashed or rebased instead, publish new `main`-reachable candidates and rerun the hosted exact-SHA fixtures before repinning any consumer.
-
----
-
-## Bootstrap a new repo
+Use a clean, dedicated feature checkout belonging to the repository you intend to
+change. The installer refuses main, master, the GitHub default branch (regardless
+of its name), detached HEAD, dirty trees, unknown visibility, archived repositories,
+forks, other owners, and an origin that does not match the explicit repository.
 
 ```bash
-# From any directory:
-bash <(curl -fsSL https://raw.githubusercontent.com/florianhorner/engineering-standards/main/bootstrap-repo.sh) /path/to/target/repo
+bash bootstrap-repo.sh /path/to/feature-checkout \
+  --repo florianhorner/example \
+  --ref <reviewed-40-character-commit-sha>
 ```
 
-The bootstrap script (Phase 4 deliverable) is self-verifying. It:
+Public and private repositories receive exactly these files:
 
-1. Vendors `commit-rules.json` from a SHA-pinned source into `.config/commit-rules.json`
-2. Drops `.commitlintrc.json`
-3. Drops `.github/workflows/commit-lint.yml` (5-line `uses:` includer)
-4. Generates `.github/dependabot.yml` with `commit-message.prefix: "chore"` — one block per ecosystem, listing every directory that holds a tracked manifest (`server/package.json`, `src-tauri/Cargo.toml`, a composite action's own `action.yml`), not just `/`
-5. Drops `CONTRIBUTING.md` snippet (cheat sheet for Codex web / human contributors)
-6. Appends commit-standards section to `CLAUDE.md`
-7. Generates `.git/hooks/commit-msg` from the validator binary
-8. Runs validator dry-run against last 3 commits to verify
-9. Checks `gh api repos/$X/actions/permissions` to confirm Actions enabled
-10. Prints final pass/fail checklist with copy-paste `gh` commands for any manual-only steps remaining
-11. Emits TTHW (time to hello world) timer
+| File | Purpose |
+|---|---|
+| `.github/workflows/commit-lint.yml` | Read-only PR workflow pinned to the selected source SHA |
+| `.config/commit-rules.json` | Minimal installation marker required by the existing reusable workflow |
+| `.config/commit-rules.meta.json` | Source pin used by the inventory scripts |
 
-**Idempotency:** Running twice detects existing markers and refreshes in place. Doesn't double-append.
+The JSON files contain installation metadata, not executable or vendored rules.
+Existing local tooling that expects the full policy must keep its own reviewed
+policy installation. Bootstrap does not migrate that tooling.
 
----
+Bootstrap never changes Git hooks, Git configuration, agent instructions,
+Dependabot, CodeRabbit, contributor files, author notes, or proof logs. Those are
+separate setup decisions. It does not commit, push, or open a pull request.
 
-## Normal flow
+Review the generated diff before publication. A prepared caller is not proof that
+CI ran or that branch protection requires the check.
 
-### Local commit (laptop)
+## Refresh and migration
 
-```bash
-git add specific-file.ts
-/commit                          # in Claude Code / Conductor — drafts message
-                                 # OR
-git commit -m "fix(scope): subject"   # manual
-                                 # commit-msg hook validates locally
-git push                         # pre-push hook revalidates range (cap 20 commits)
-                                 # CI on push validates again
-```
+Only files bearing the minimal installer's managed marker can be refreshed.
+Existing unmarked files are refused before any file is written. This deliberately
+requires a separately reviewed migration for legacy installations, rather than
+overwriting contributor work or old local-tool dependencies.
 
-### Cloud agent commit (Claude Code Cloud / Codex web)
+After committing a minimal installation locally, running again at the same SHA
+produces no changes. Selecting another reviewed SHA updates the caller and both
+metadata files together. Partial write failures restore previous file contents.
+Do not run another writer in the same checkout during installation.
 
-The agent reads the repo-local `CONTRIBUTING.md` cheat sheet and `commit-rules.json`. It crafts the message conformantly because it was trained on the spec from the snippet. CI on push catches anything that drifts.
+## Reusable workflow trust boundary
 
-### Bot commits (renovate, dependabot, pre-commit-ci)
+The consumer calls a workflow at an exact commit SHA. The reusable workflow checks
+out consumer code as untrusted data and obtains its validator, rules, and locked
+toolchain from its own verified source revision. Consumer metadata is not executed.
+The existing hosted workflow fixtures verify the pinned workflow identities;
+bootstrap unit tests verify the local installation boundaries.
 
-Bot commit messages are validated normally because Git author names are user-controlled. For the PR title only, CI compares the event author's verified GitHub login with `trusted_bots` and may skip the rule IDs in `trusted_bot_skips`. If a bot lands a non-conventional commit subject, fix the bot config rather than weakening the rules.
+## Inventory
 
----
+`bash fleet-audit.sh` reports local origins against GitHub default branches.
+It never installs anything; `--apply` exits with an error before scanning.
 
-## Override flow
+`bash fleet-audit-remote.sh` reports public repositories only. Private and unknown
+visibility are excluded before fetching repository contents, including when the
+report is destined for an Actions summary or a public issue. The local audit may
+contain private inventory and must remain local.
 
-### Sanctioned bypass
-
-```bash
-# Emergency hotfix at 2am:
-git commit -m "[hotfix] fix prod outage from migration 0042" \
-  -m "" \
-  -m "Policy-Override: prod outage, migrating roll-forward fix; full review tomorrow"
-```
-
-The `[hotfix]` subject prefix is exempted from format check. The `Policy-Override:` trailer logs to `~/.commit-bypass.log`. CI records the exception, doesn't block.
-
-### Unsanctioned bypass
-
-```bash
-git commit --no-verify -m "fix stuff"
-```
-
-CI WILL block this on push. Use the sanctioned bypass above for legitimate emergency cases.
-
-### Reverts / merges / cherry-picks
-
-These are exempted by subject prefix (`Revert `, `Merge `, `cherry-pick: `). No special action needed.
-
----
-
-## Bot behavior
-
-| Bot | Conventional by default? | Required config |
-|---|---|---|
-| `renovate[bot]` | Yes (`chore(deps):`) | None |
-| `dependabot[bot]` | NO (`Bump foo from 1 to 2`) | `.github/dependabot.yml` with `commit-message.prefix: "chore"` |
-| `pre-commit-ci[bot]` | Yes (`[pre-commit.ci] auto fixes`) | None |
-| `app/github-actions` | Varies | Configure conventional subjects for generated commits |
-
-To add a new trusted PR author: edit the `commit-rules.json` `exemptions.trusted_bots` array, bump the schema version, and ship a new engineering-standards SHA. Consumers pick it up when they repin the reusable workflow.
-
-To change which PR-title rules a trusted bot may trip, edit `exemptions.trusted_bot_skips`. CI reads that array from the immutable workflow checkout, so a rule ID added there takes effect on the next SHA repin. A bot PR still fails if its title trips even one rule outside the array, and commit messages receive no author-based exemption.
-
-`SUBJECT_TOO_LONG` is in the list because Dependabot's grouped-update titles ("…in the core group across 1 directory") exceed 72 characters by construction and cannot be configured shorter.
-
----
-
-## Troubleshooting matrix
-
-| Symptom | Likely cause | Fix |
-|---|---|---|
-| Local hook accepts but CI blocks | SHA pin drift between local validator and CI validator | Re-run `bootstrap-repo.sh` to refresh local hook from current rules |
-| Local hook blocks but CI passes | Same drift in opposite direction | Same — re-run bootstrap |
-| `Skill-Run:` trailer missing on commits made by a skill | `$COMMIT_SKILL_RUN` env var not set by skill wrapper | Wrapper bug; OMIT-not-fabricate means missing var is correct behavior, but skill wrapper should set it |
-| `Skill-Run:` trailer present but value is wrong | Stale env var from previous skill | Wrapper should `unset` after use |
-| Bot PR title fails CI | Bot config not patched, login not in `trusted_bots`, or violation not skippable | Re-run bootstrap for Dependabot formatting; only add a verified login/rule skip when policy intends it |
-| Codex web agent commits fail CI | Repo CONTRIBUTING.md cheat sheet missing | Re-run bootstrap to drop it |
-| `Verify immutable workflow identity` fails | Consumer uses a moving ref or the trusted checkout does not match the called workflow | Pin `.github/workflows/commit-lint.yml` to the intended exact 40-character commit SHA |
-| Pre-push hook blocking on a 50-commit rebase from upstream | Augmentation not capping commits | Verify hook contains the `[ "$count" -gt 10 ] && skip` logic |
-
----
-
-## Upgrade flow
-
-When `commit-rules.json` changes in engineering-standards:
-
-1. CHANGELOG.md gets the entry (rule_id added/deprecated, never modified)
-2. Validator version bumps (semver: minor for new rule, patch for fix, major for schema change)
-3. Reusable workflow changes ship as a new commit SHA if they affect CI behavior
-4. Per-repo update: bump SHA pin in `.github/workflows/commit-lint.yml` AND re-run bootstrap to refresh `.config/commit-rules.json` and `.git/hooks/commit-msg`
-
-**Breaking-change discipline:** never modify an existing rule_id. Add new rule_id, deprecate old one in CHANGELOG. Consumers can pin to old SHA until they're ready.
-
----
-
-## Audit & metrics
-
-```bash
-# Per-repo report:
-bash scripts/commit-audit.sh ~/repos/lightener
-# → total commits, % conventional, top 20 worst offenders, by-author breakdown
-
-# Generate RETRO.md (recruiter-readable summary of worst commits):
-bash scripts/generate-retro.sh ~/repos/lightener
-# → uses Codex CLI to explain worst commits in plain English; commits RETRO.md to repo
-
-# Bypass audit:
-cat ~/.commit-bypass.log
-# → who used --no-verify, when, why
-```
-
----
+MISSING means the expected installation files are absent. STALE means the recorded
+source SHA differs from current main; this can follow an unrelated source commit.
+Neither means the repository is unsafe or must adopt the policy. Decide whether
+adoption is appropriate before changing a repository.
 
 ## Fleet remediation (two-phase)
 
 Detection and remediation are deliberately split, and only detection is autonomous.
 
-**Scope:** this audit checks commit-standards installation and pins, not project priorities, PR blockers, or next actions. It enumerates at most 200 repositories visible to the supplied token. The scheduled workflow uses the repository-scoped `GITHUB_TOKEN`, which cannot inspect other private repositories; omitted repositories are not evidence of compliance. See [GitHub token permissions](https://docs.github.com/en/actions/concepts/security/github_token). No credential expansion is part of this workflow.
+**Scope:** this audit checks commit-policy installation and pins, not project priorities, PR blockers, or next actions. It enumerates at most 200 repositories and reports only public ones, so a repository absent from the report is not evidence of compliance. No credential expansion is part of this workflow.
 
 **Failed reads are not missing files.** HTTP 403/429/5xx, transport failures, invalid file responses, malformed inventories, and invalid `sha_pin` metadata stop the audit with a nonzero exit before a new JSON report or issue is published. Only a file-level 404 followed by a successful root contents listing establishes absence. This keeps access failures out of the `remediable` target set. Consumers must require a successful audit run; an older artifact is not a substitute for a failed run.
 
 | Phase | Runs as | Cadence | Writes |
 |---|---|---|---|
-| 1 — detect | `fleet-audit-monthly.yml` (GitHub Actions) | monthly, 08:07 UTC on the 1st | issue in this repo + `fleet-audit-report` artifact |
-| 2 — remediate | Claude Code cloud routine, **poke-only** (no schedule) | only when a human fires it | draft PRs in downstream repos |
+| 1, detect | `fleet-audit-monthly.yml` (GitHub Actions) | monthly, 08:07 UTC on the 1st | issue in this repo plus the `fleet-audit-report` artifact |
+| 2, remediate | Claude Code cloud routine, **poke-only** (no schedule) | only when a human fires it | draft PRs in downstream repos |
 
 **Why phase 2 has no schedule.** It is the phase with push access to repos outside this one. Leaving it unscheduled means the unattended monthly job stays read-only, and every cross-repo write traces back to a person firing the routine. Fire it from the Routines list, or with `fire_trigger` from a session.
 
 **Why phase 2 reads the artifact, not the issue.** The monthly report reaches the issue as a body plus follow-up comments, and comments are writable by anyone who can comment on the repo. An agent that parsed that thread to decide which repos to push to would be taking its target list from an attacker-writable surface. `fleet-audit.json`, uploaded as a workflow-run artifact, is written only by the workflow and is immutable once the run finishes.
 
-**Why the eligibility flag lives in the script.** `fleet-audit-remote.sh --json` decides `remediable` per repo, encoding fleet-audit.sh's note-5 policy: OWN + MISSING only. OWN-FORK is never auto-remediated (AUTHOR-NOTES.md and upstream-tracking concerns need a human on the diff), STALE is never auto-remediated for any bucket (a SHA-pin refresh changes what CI enforces), archived repos never enter the report. The consuming agent filters on a boolean instead of interpreting prose, so a prompt-injection attempt cannot argue its way into a different target set.
+**Why the eligibility flag lives in the script.** `fleet-audit-remote.sh --json` decides `remediable` per repo: OWN plus MISSING only. OWN-FORK is never auto-remediated (author notes and upstream-tracking concerns need a human on the diff), STALE is never auto-remediated for any bucket (a SHA-pin refresh changes what CI enforces), archived repos never enter the report. The script is the only place that policy is written down, so the consuming agent filters on a boolean instead of interpreting prose, and a prompt-injection attempt cannot argue its way into a different target set.
+
+A `remediable` row is an eligibility flag, never an instruction to install. Adoption stays a per-repository decision, and installation still runs through one explicitly selected feature checkout.
 
 Remaining guardrails, which do not depend on the agent behaving:
 
 - Draft PRs only, never merge, never enable auto-merge.
-- Branch protection with required review on downstream repos — the backstop if everything above fails.
+- Branch protection with required review on downstream repos, the backstop if everything above fails.
 - `add_repo` re-authorizes per call, so the routine cannot reach repos outside the account's granted set even if its instructions are subverted.
 
 ```bash
@@ -222,16 +103,3 @@ Remaining guardrails, which do not depend on the agent behaving:
 bash fleet-audit-remote.sh --json fleet-audit.json
 python3 -c "import json;d=json.load(open('fleet-audit.json'));print(d['summary'])"
 ```
-
----
-
-## When the system is wrong
-
-If the validator blocks a legitimate commit:
-
-1. Check if your case matches an exemption (Merge / Revert / cherry-pick / hotfix). If yes, prefix accordingly.
-2. Check if your case is a missing rule (e.g., a new bot needs allowlisting). Open issue on `florianhorner/engineering-standards`.
-3. If the rule itself is wrong (false positive on legitimate phrase), open issue with example.
-4. Last resort: sanctioned `Policy-Override:` trailer with reason. Logs surface the override for later review.
-
-The system optimizes for "agent compliance + portfolio signal," not "100% rule purity." Rules that block legitimate work get refined or removed.

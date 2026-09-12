@@ -141,14 +141,14 @@ class WorkflowSecurityContractTest(unittest.TestCase):
         self.assertNotIn("pull-requests: write", caller)
         self.assertIn(
             "uses: florianhorner/engineering-standards/.github/workflows/"
-            "commit-lint-reusable.yml@1767592a5b49d7a1324e2fb2133349b0045c3f2d",
+            "commit-lint-reusable.yml@a6e063b4cde4867bfbb374a778a54cef6512f6ae",
             caller,
         )
 
     def test_hosted_fixtures_use_exact_candidate_shas(self) -> None:
         expected = {
-            "18282d55b7d945ad3d49941b784e9a3886a5a678",
             "1767592a5b49d7a1324e2fb2133349b0045c3f2d",
+            "a6e063b4cde4867bfbb374a778a54cef6512f6ae",
         }
         actual = set(
             re.findall(
@@ -167,7 +167,7 @@ class WorkflowSecurityContractTest(unittest.TestCase):
         self.assertIn('test "$ROLLBACK_RESULT" = "success"', verifier)
         self.assertIn('test "$PRIMARY_RESULT" = "success"', verifier)
         self.assertIn(
-            'test "$PRIMARY_SHA" = "1767592a5b49d7a1324e2fb2133349b0045c3f2d"',
+            'test "$PRIMARY_SHA" = "a6e063b4cde4867bfbb374a778a54cef6512f6ae"',
             verifier,
         )
 
@@ -180,8 +180,8 @@ class WorkflowSecurityContractTest(unittest.TestCase):
         package = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
         lock = json.loads((ROOT / "package-lock.json").read_text(encoding="utf-8"))
         expected = {
-            "@commitlint/cli": "19.5.0",
-            "@commitlint/config-conventional": "19.5.0",
+            "@commitlint/cli": "21.2.2",
+            "@commitlint/config-conventional": "21.2.2",
         }
         self.assertEqual(package.get("devDependencies"), expected)
         self.assertEqual(lock["packages"][""]["devDependencies"], expected)
