@@ -4,6 +4,13 @@ dist/
 *.log
 npm-debug.log*
 
+# Python
+__pycache__/
+*.py[cod]
+
+# Generated validator scratch (test-corpus.yml recreates this)
+.ci-tmp/
+
 # macOS
 .DS_Store
 
