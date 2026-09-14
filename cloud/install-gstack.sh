@@ -16,7 +16,7 @@
 #   GSTACK_HOSTS="claude codex" cloud/install-gstack.sh
 #
 # Idempotent: re-running updates the checkout in place and re-registers skills
-# (~5 s), so it also works as a repair/update inside a live workspace. Skills
+# (~12 s), so it also works as a repair/update inside a live workspace. Skills
 # registered mid-session only take effect after the session restarts.
 #
 # Environment:
@@ -152,9 +152,11 @@ ensure_bun() {
     log "bun $(bun --version) installed"
   fi
 
-  # The snapshot keeps the filesystem, not shell state. bun's installer writes
-  # ~/.bash_profile itself; ~/.profile is the one cloud login shells source
-  # transitively, so make sure both carry it.
+  # The snapshot keeps the filesystem, not shell state, and since bun now comes
+  # from a release zip rather than its own installer, nothing writes either file
+  # for us. Both are written here, and both are needed: ~/.bash_profile for
+  # interactive bash logins, ~/.profile for the cloud login shells that source
+  # it transitively. Dropping either one loses bun from PATH in that shell.
   local line='export PATH="$HOME/.bun/bin:$PATH"'
   local f
   for f in "$HOME/.bash_profile" "$HOME/.profile"; do
