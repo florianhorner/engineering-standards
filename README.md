@@ -45,8 +45,9 @@ Public and private repositories receive the same minimal payload. Hooks,
 agent instructions, proof logs, contributor files, and bot configuration are
 never installed automatically. See the [operator guide](docs/commit-system-operator.md).
 
-The remote audit omits private and unknown-visibility repositories from all
-output, including public issues and Actions summaries.
+The remote audit ([fleet-audit-remote.sh](fleet-audit-remote.sh)) omits private and
+unknown-visibility repositories from all output, including public issues and
+Actions summaries.
 
 ## CodeRabbit leftover dispatcher (shadow)
 
