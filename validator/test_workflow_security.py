@@ -180,7 +180,7 @@ class WorkflowSecurityContractTest(unittest.TestCase):
         package = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
         lock = json.loads((ROOT / "package-lock.json").read_text(encoding="utf-8"))
         expected = {
-            "@commitlint/cli": "21.2.2",
+            "@commitlint/cli": "21.2.4",
             "@commitlint/config-conventional": "21.2.4",
         }
         self.assertEqual(package.get("devDependencies"), expected)
