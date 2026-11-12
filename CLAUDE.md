@@ -15,3 +15,37 @@ This repo follows the [engineering-standards commit-message spec](https://github
 
 **Bypass:** `git commit --no-verify` requires a `Policy-Override: <reason>` trailer to pass CI. Logged to `~/.commit-bypass.log` by the pre-push hook.
 <!-- END: commit-message-standards -->
+
+## Trust-boundary changes get one top-tier model review before merge (provisional)
+
+The commit-lint workflow, the validator and the composite action here run in
+other repositories' CI, and `bootstrap-repo.sh` installs workflows and hooks
+into them, so a defect reaches every caller at once. A pull request that changes one of the paths below
+gets one review of its full diff before merge by the most capable Claude model
+available, at effort `high`, in a Claude Code session on a checkout of the pull
+request head. The review bots stay as they are. Post the
+findings on the pull request and handle each one like a bot finding: fix it, or
+answer it with a reason.
+
+- **Trigger:** `.github/workflows/**`, `.github/dependabot.yml`, `validator/**`,
+  `actions/**`, `specs/commit-rules.json`, `specs/ha-app-docs-rules.json`,
+  `.config/commit-rules.json`, `bootstrap-repo.sh`, `fleet-audit*.sh`,
+  `coderabbit*`, `templates/per-repo-commit-lint.yml` or
+  `templates/dependabot-snippet.yml`.
+- **Not covered: Dependabot bumps.** A change that only bumps a dependency gets
+  no model review, because the reviewer cannot see upstream code. For an action
+  pin, check it mechanically instead: the new pin is a full 40-hex SHA, and the
+  tag its version comment names is at that commit
+  (`git ls-remote https://github.com/<owner>/<repo> refs/tags/<tag>`; for an
+  annotated tag the commit is on the `^{}` line). A pin without a version
+  comment cannot be checked this way; give it one when you touch it.
+- **Changes a pull request cannot run.** `coderabbit-dispatch-hourly.yml` and
+  `fleet-audit-monthly.yml` run on a schedule, so a change to them, or to the
+  scripts they run, first runs after merge. Dispatch or watch that first run.
+- **Why provisional.** On three past trust-boundary changes, the most capable
+  models found about twice as many of the problems that later fixes proved as
+  the cheapest configuration did, and on the one change with a record of what
+  the review bots raised, the most capable model found more. At effort `high`
+  that costs a few dollars and about six minutes per review; effort `max` found
+  little more at about three times the cost. One run per configuration cannot
+  size these gaps, so narrow or drop the rule if later reviews do not show them.
