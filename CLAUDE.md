@@ -35,10 +35,12 @@ answer it with a reason.
 - **Not covered: Dependabot bumps.** A change that only bumps a dependency gets
   no model review, because the reviewer cannot see upstream code. For an action
   pin, check it mechanically instead: the new pin is a full 40-hex SHA, and the
-  tag its version comment names is at that commit
-  (`git ls-remote https://github.com/<owner>/<repo> refs/tags/<tag>`; for an
-  annotated tag the commit is on the `^{}` line). A pin without a version
-  comment cannot be checked this way; give it one when you touch it.
+  tag its version comment names is at that commit. List the tag and its peeled
+  form together:
+  `git ls-remote https://github.com/<owner>/<repo> "refs/tags/<tag>" "refs/tags/<tag>^{}"`.
+  For an annotated tag the commit is on the `^{}` line; a lightweight tag prints
+  only the tag line, and that is the commit. A pin without a version comment
+  cannot be checked this way; give it one when you touch it.
 - **Changes a pull request cannot run.** `coderabbit-dispatch-hourly.yml` and
   `fleet-audit-monthly.yml` run on a schedule, so a change to them, or to the
   scripts they run, first runs after merge. Dispatch or watch that first run.
