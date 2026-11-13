@@ -1,15 +1,13 @@
 # Monthly fleet-wide commit-message-standards compliance report.
 #
-# Why this exists (and why it's a GitHub Actions workflow, not a Claude Code
-# cloud routine): cloud routines run in an isolated sandbox with no access to
-# Florian's local filesystem, so they can't walk ~/repos or
-# ~/conductor/workspaces the way the local fleet-audit.sh does. This workflow
-# instead enumerates GitHub repos via `gh repo list`, which catches repos that
-# were never cloned to this machine. That does NOT make it the more complete
-# read: it reports public repos only, because the report lands in a public
-# issue and an Actions summary, so a repo absent from the table may be
-# private, unlisted or past the 200 cap. `fleet-audit-remote.sh` carries the
-# same caveat, and so does the report footer.
+# Why this exists: the local fleet-audit.sh walks git checkouts on disk, which
+# a hosted runner does not have. This workflow instead enumerates GitHub repos
+# via `gh repo list`, which also covers repos with no local checkout. That
+# does NOT make it the more complete read: it reports public repos only,
+# because the report lands in a public issue and an Actions summary, so a repo
+# absent from the table may be private, unlisted or past the 200 cap.
+# `fleet-audit-remote.sh` carries the same caveat, and so does the report
+# footer.
 #
 # This workflow is REPORT-ONLY. It never calls bootstrap-repo.sh and never
 # writes to any other repo. It only reads via the GitHub API and, at the end,
@@ -21,8 +19,7 @@ name: Fleet Audit (Monthly)
 on:
   schedule:
     # 08:07 UTC on the 1st of each month. Deliberately not a `:00` boundary —
-    # avoids the exact-hour stampede convention already used elsewhere in
-    # this ecosystem's scheduled workflows.
+    # avoids the exact-hour stampede of scheduled workflows.
     - cron: "7 8 1 * *"
   workflow_dispatch: {}
 

@@ -21,7 +21,7 @@ Reusable commit-policy checks, Home Assistant installation-documentation checks,
 
 ## Fleet-wide audits
 
-**[fleet-audit.sh](fleet-audit.sh)** answers "is the whole fleet actually in sync," not just one repo. `bootstrap-repo.sh` makes a single repo compliant; `fleet-audit.sh` walks every local checkout under `~/repos` and `~/conductor/workspaces`, dedupes by origin remote (so N Conductor worktrees of the same repo count once), and classifies each unique repo:
+**[fleet-audit.sh](fleet-audit.sh)** answers "is the whole fleet actually in sync," not just one repo. `bootstrap-repo.sh` makes a single repo compliant; `fleet-audit.sh` walks every local checkout under `$HOME/repos` and `$HOME/conductor/workspaces`, dedupes by origin remote (so several worktrees of the same repo count once), and classifies each unique repo:
 
 - `THIRD-PARTY-CLONE` — origin owner isn't `florianhorner` (e.g. a local clone of someone else's project). Never touched.
 - `OWN` / `OWN-FORK` — owned by `florianhorner`, checked against the commit-message-standards system: `MISSING` (no `.github/workflows/commit-lint.yml`), `STALE(<N>d)` (SHA pin behind upstream `main`, age from the repo's own `.config/commit-rules.meta.json`), or `FRESH`.
@@ -51,7 +51,7 @@ Actions summaries.
 
 ## CodeRabbit leftover dispatcher (shadow)
 
-Team Fair Usage is per developer and does not bank unused hourly slots. Shotgun auto-incrementals on every push burn the 7-day window; other repos starve. This repo hosts a **central, report-only** hourly job that ranks at most one later review across Florian's owned non-forks plus allowlisted forks (`lightener-studio`, `govee2mqtt-extended`).
+CodeRabbit's fair-usage allowance is per developer and does not carry unused hourly slots forward, so automatic incremental reviews on every push can use up the 7-day allowance before other repos get a review. This repo hosts a **central, report-only** hourly job that ranks at most one later review across the owner's non-fork repos plus the forks allowlisted in `ALLOWLISTED_FORKS` (`coderabbit_dispatch.py`).
 
 - First reviews stay automatic via CodeRabbit (`reviews.auto_review.enabled: true`). Incrementals are not automatic.
 - Shadow only: job summary. No comments, no labels, no GitHub App, no writes to other repos, no hourly issues.
@@ -66,7 +66,7 @@ Team Fair Usage is per developer and does not bank unused hourly slots. Shotgun 
 
 ## Why a public repo
 
-GitHub blocks public repos from calling reusable workflows in private repos without per-consumer PAT secrets. Florian's portfolio repos (lightener, mammamiradio, etc.) need to consume these workflows, so the canonical source must be public.
+GitHub blocks public repos from calling reusable workflows in private repos without per-consumer PAT secrets. Public consumer repos need to call these workflows, so the canonical source must be public.
 
 ## Versioning
 

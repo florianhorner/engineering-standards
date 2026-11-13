@@ -8,7 +8,7 @@ Generator for the local commit-msg Bash hook.
 
 1. The local Bash commit-msg hook (this generator's output)
 2. The CI commit-lint workflow
-3. The `/commit` skill prompt
+3. Local commit tooling that reads the rules directly
 
 Hand-writing the Bash hook means three loaders that drift apart silently — a bug fixed in one place stays broken in the others. By generating the hook from `commit-rules.json`, **three-loaders-drift is structurally impossible**: change the rule, regenerate, ship. The generator is the contract.
 

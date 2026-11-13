@@ -1,8 +1,8 @@
 name: pr-body-lint
 
 # Editorial boundary for PR bodies: public bodies describe user-visible
-# outcomes. Review archaeology, agent provenance, operator telemetry and
-# process narrative belong in the private durable record.
+# outcomes, not review history, agent provenance, operator telemetry or
+# process narrative.
 #
 # Patterns live in florianhorner/gh-workflows and match the grammatical SHAPE of
 # a violation rather than a literal phrase, so a paraphrase of a banned class

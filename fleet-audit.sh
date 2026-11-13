@@ -9,8 +9,8 @@ export LC_ALL=C.UTF-8
 # ---------------------------------------------------------------------------
 readonly ENGSTD_REPO="florianhorner/engineering-standards"
 readonly ENGSTD_OWNER="florianhorner"
-readonly REPOS_ROOT="/Users/florianhorner/repos"
-readonly WORKSPACES_ROOT="/Users/florianhorner/conductor/workspaces"
+readonly REPOS_ROOT="${HOME}/repos"
+readonly WORKSPACES_ROOT="${HOME}/conductor/workspaces"
 readonly CI_WORKFLOW_PATH=".github/workflows/commit-lint.yml"
 readonly META_PATH=".config/commit-rules.meta.json"
 
@@ -87,10 +87,9 @@ printf '%s%s%s\n\n' "$C_GREEN" "${UPSTREAM_SHA:0:7}" "$C_RESET"
 # Step 1: enumerate .git directories.
 #   - repos/: one level deep (repos/*/. git)
 #   - conductor/workspaces/: nested project/variant subdirs, so search wider.
-#     Capped at depth 6 (workspaces/<project>/<variant>/.git = depth 3, but
-#     Conductor sometimes nests an extra level for sub-checkouts) — cheap
-#     insurance against runaway find on a home directory, not a hard project
-#     assumption.
+#     Capped at depth 6 (workspaces/<project>/<variant>/.git = depth 3, with
+#     headroom for deeper sub-checkouts) — cheap insurance against runaway
+#     find on a home directory, not a hard project assumption.
 # ---------------------------------------------------------------------------
 GIT_DIRS=()
 while IFS= read -r -d '' gitdir; do
@@ -113,8 +112,8 @@ info "found ${#GIT_DIRS[@]} local git checkouts"
 # macOS ships bash 3.2 (no associative arrays) — bootstrap-repo.sh avoids
 # `declare -A` for the same reason, so this mirrors that constraint. Dedup is
 # done with two parallel indexed arrays (ORIGIN_LIST + PATHS_BY_ORIGIN_LIST,
-# same index i) and a linear scan via origin_index(). Fleet size is in the
-# dozens, not thousands, so O(n) lookups are invisible in practice.
+# same index i) and a linear scan via origin_index(). Lookups are O(n), which
+# is fine for a local set of checkouts.
 # ---------------------------------------------------------------------------
 ORIGIN_LIST=()
 PATHS_BY_ORIGIN_LIST=()   # same index as ORIGIN_LIST; newline-joined paths
@@ -187,16 +186,13 @@ gh_default_branch_file() {
 # re-merge by that canonical name.
 #
 # Why this exists: Step 2 dedupes by the LOCAL git remote URL string, which
-# is correct and bug-free for that job — but it's the wrong key when a repo
-# has been renamed upstream. Two local checkouts can carry different remote
-# URLs (e.g. florianhorner/fakeitaliradio and florianhorner/mammamiradio)
-# that both resolve, via GitHub's rename-redirect, to the SAME current repo
-# (`gh repo view` on either returns nameWithOwner: florianhorner/mammamiradio).
-# Confirmed live: florianhorner/fakeitaliradio -> mammamiradio, and
-# florianhorner/lightener-curve-editor -> lightener-studio. Classifying by
-# raw origin string produced two ROWS for one real repo. Fix: do exactly one
-# `gh repo view` per raw origin (same call count as before — no new API
-# load), then merge any origins whose resolved nameWithOwner collides,
+# is correct for that job — but it's the wrong key when a repo has been
+# renamed upstream. Two local checkouts can carry different remote URLs
+# (e.g. owner/old-name and owner/new-name) that both resolve, via GitHub's
+# rename-redirect, to the SAME current repo (`gh repo view` on either returns
+# nameWithOwner: owner/new-name). Classifying by raw origin string would
+# produce two ROWS for one real repo. So: do exactly one `gh repo view` per
+# raw origin, then merge any origins whose resolved nameWithOwner collides,
 # concatenating their path lists, BEFORE the classification loop below runs.
 # Stays bash 3.2-compatible: same linear-scan-over-indexed-arrays pattern as
 # origin_index(), no `declare -A`.
@@ -222,7 +218,7 @@ for i in "${!ORIGIN_LIST[@]}"; do
   view_json="$(gh repo view "$origin" --json isFork,parent,nameWithOwner,defaultBranchRef 2>/dev/null || true)"
   if [ -z "$view_json" ]; then
     # Lookup failure: never merges with anything (no canonical name to key
-    # on) — keep it as its own row, same as before this fix.
+    # on) — keep it as its own row.
     RESOLVED_NAME_LIST+=("")
     RESOLVED_ISFORK_LIST+=("")
     RESOLVED_DEFAULT_BRANCH_LIST+=("")
@@ -270,7 +266,7 @@ for i in "${!RESOLVED_NAME_LIST[@]}"; do
 
   # --- Classification step 1: ownership gate ---
   if [ "$owner" != "$ENGSTD_OWNER" ]; then
-    ROWS+=("${name_with_owner}|THIRD-PARTY-CLONE|n/a|owner is ${owner}, not ${ENGSTD_OWNER} — no repo of Florian's to standardize|${primary_path}")
+    ROWS+=("${name_with_owner}|THIRD-PARTY-CLONE|n/a|owner is ${owner}, not ${ENGSTD_OWNER} — not a repository to standardize|${primary_path}")
     continue
   fi
 

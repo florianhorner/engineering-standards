@@ -595,7 +595,7 @@ class ShellIntegrationTest(unittest.TestCase):
         )
 
     def test_shell_isolates_one_failing_repo(self):
-        """A 403 on one repo used to abort the tick and print nothing at all."""
+        """A 403 on one repo must not abort the tick and leave nothing printed."""
         root = self._tree(enabled=True)
         fx = self._fleet_fixtures(root)
         bindir = self._shim(root)
@@ -610,7 +610,7 @@ class ShellIntegrationTest(unittest.TestCase):
         self.assertIn("403", proc.stdout)
 
     def test_shell_does_not_fetch_comments_for_prefiltered_prs(self):
-        """Two requests per PR x every open PR on ~200 repos is the fan-out risk."""
+        """Two requests per PR x every open PR on every owned repo is the fan-out risk."""
         root = self._tree(enabled=True)
         fx = self._fleet_fixtures(root)
         bindir = self._shim(root)
@@ -622,8 +622,8 @@ class ShellIntegrationTest(unittest.TestCase):
         comments = [c for c in api if "/comments" in c]
         reviews = [c for c in api if "/reviews" in c]
         # Comments are read for every open PR — they are the only budget-footer
-        # source, and Dependabot/draft PRs carry the freshest footers while the
-        # org dashboard still shotguns incrementals.
+        # source, and Dependabot/draft PRs carry the freshest footers whenever
+        # organization settings still run incrementals on them.
         self.assertEqual(len(comments), 5, "\n".join(api))
         # Reviews only for the two PRs that survive the pre-filter. A PR that
         # can never be a candidate has no use for its review objects.
@@ -651,9 +651,9 @@ class BudgetCarryForwardTest(unittest.TestCase):
     """The 7-day integer must survive a newer footer that omits it.
 
     CodeRabbit posts two footer shapes and only one carries the integer. Taking
-    the newest budget-bearing comment wholesale meant a single #1114-shaped
-    footer anywhere in the fleet pinned every later tick to BUDGET_HELD, so the
-    ranking never ran. Carry-forward is bounded, not unconditional.
+    the newest budget-bearing comment wholesale would let a single count-less
+    footer anywhere in the fleet pin every later tick to BUDGET_HELD, so the
+    ranking would never run. Carry-forward is bounded, not unconditional.
     """
 
     def _report(self, older_when: str, newer_when: str = "2026-09-07T12:00:00Z"):
@@ -820,7 +820,7 @@ class WorkflowShadowContractTest(unittest.TestCase):
         for text in (engine, shell):
             self.assertNotIn("gh pr comment", text)
             # `-X POST`, `-XPOST` and `--method POST` are the same call; a
-            # literal-substring check only caught the first spelling.
+            # literal-substring check would only catch the first spelling.
             self.assertIsNone(
                 re.search(r"gh api\b[^\n]*(-X\s*=?\s*POST|--method(?:=|\s+)POST)", text),
                 "engine/shell must stay report-only",

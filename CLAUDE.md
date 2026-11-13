@@ -7,7 +7,7 @@ This repo follows the [engineering-standards commit-message spec](https://github
 
 **Local invocation:** Use the `/commit` skill in Claude Code / Conductor. Default behavior is dry-run (drafts a message and shows the validator output without committing); pass `--commit` to actually create the commit. Manual `git commit` works too — the local `commit-msg` hook validates either path.
 
-**Per-repo cheat sheet:** [`./CONTRIBUTING.md`](./CONTRIBUTING.md) carries the 30-second cheat sheet, good/bad examples, banned patterns, exempt subjects, bot allowlist, and bypass policy. It is self-sufficient for cloud agents (Claude Code Cloud, Codex web) that only see repo-local files.
+**Per-repo cheat sheet:** [`./CONTRIBUTING.md`](./CONTRIBUTING.md) carries the 30-second cheat sheet, good/bad examples, banned patterns, exempt subjects, bot allowlist, and bypass policy. It is self-sufficient for agents that only see repo-local files.
 
 **Machine-readable rules:** [`.config/commit-rules.json`](.config/commit-rules.json) is a SHA-pinned vendored copy of the upstream `commit-rules.json`. The local commit-msg hook and commit tooling read this file. CI executes the canonical rules from the exact reusable-workflow SHA and requires the vendored copy only as installation metadata; it never executes policy from the PR head. Do not hand-edit — re-run `bootstrap-repo.sh` to refresh.
 
@@ -44,10 +44,6 @@ answer it with a reason.
 - **Changes a pull request cannot run.** `coderabbit-dispatch-hourly.yml` and
   `fleet-audit-monthly.yml` run on a schedule, so a change to them, or to the
   scripts they run, first runs after merge. Dispatch or watch that first run.
-- **Why provisional.** On three past trust-boundary changes, the most capable
-  models found about twice as many of the problems that later fixes proved as
-  the cheapest configuration did, and on the one change with a record of what
-  the review bots raised, the most capable model found more. At effort `high`
-  that costs a few dollars and about six minutes per review; effort `max` found
-  little more at about three times the cost. One run per configuration cannot
-  size these gaps, so narrow or drop the rule if later reviews do not show them.
+- **Why provisional.** The rule rests on a small trial with one run per
+  configuration. Narrow or drop it if later reviews do not find problems that
+  the review bots miss.

@@ -1,6 +1,6 @@
 # Commit Message Spec
 
-Canonical commit-message standard for every repo and AI tool Florian uses. Machine-readable rules: [`commit-rules.json`](commit-rules.json). Operator manual: [`../docs/commit-system-operator.md`](../docs/commit-system-operator.md).
+Canonical commit-message standard for repositories and the AI tools that commit to them. Machine-readable rules: [`commit-rules.json`](commit-rules.json). Operator manual: [`../docs/commit-system-operator.md`](../docs/commit-system-operator.md).
 
 ---
 
@@ -91,12 +91,12 @@ The leading `v<MAJOR.MINOR.PATCH.MICRO> ` is optional and used only on PR titles
 - **Length:** ≤72 chars total (type + scope + colon + space + subject).
 - **Imperative mood:** "fix bug" not "fixed bug" or "fixes bug".
 - **No trailing period.** Subjects are not sentences.
-- **Version prefix.** Short version prefixes (`v1.2.3`, `v2`) are banned — they belong in CHANGELOG.md, not subjects. The 4-component ship-version prefix (`vMAJOR.MINOR.PATCH.MICRO `, e.g. `v0.1.1.1 `) IS allowed at the front of a subject: gstack workspace-aware `/ship` puts it on PR titles (which become squash-merge subjects) as a landing-queue claim. Optional — direct commits omit it.
+- **Version prefix.** Short version prefixes (`v1.2.3`, `v2`) are banned — they belong in CHANGELOG.md, not subjects. The 4-component ship-version prefix (`vMAJOR.MINOR.PATCH.MICRO `, e.g. `v0.1.1.1 `) IS allowed at the front of a subject: release tooling can put it on PR titles (which become squash-merge subjects) to claim a version before landing. Optional — direct commits omit it.
 - **Scope** is optional; use it for the affected area: `feat(auth)`, `fix(curve-card)`, `docs(readme)`. Single-word, lowercase, hyphenated.
 
 ### Why body
 
-The `Why:` line is the load-bearing portfolio signal. Future-you and recruiters reading `git log` learn the *reason*, not just the *what*.
+The `Why:` line is the load-bearing part of the body. Anyone reading `git log` later learns the *reason*, not just the *what*.
 
 **Required (CI blocks):** type is `feat` AND `git diff --shortstat` shows >50 lines changed.
 **Advisory (local hook warns, CI does not block):** all other non-trivial commits.
@@ -104,7 +104,7 @@ The `Why:` line is the load-bearing portfolio signal. Future-you and recruiters 
 **Acceptable terse `Why:` templates:**
 - `Why: closes #N` — when the issue body has the context
 - `Why: incident response — outage 2026-05-08T03:00Z`
-- `Why: requested by ops at 0900 standup; needed for Italy launch Friday`
+- `Why: requested by ops at 0900 standup; needed for Friday's release`
 - `Why: spec at <url>; see decision log section 3`
 - `Why: empirical — 30% latency reduction on prod traffic mirror`
 
@@ -114,12 +114,12 @@ Free-form git trailers parsed via `git interpret-trailers`. **OMIT if not detect
 
 | Trailer | Source env var | Purpose |
 |---|---|---|
-| `Skill-Run:` | `$COMMIT_SKILL_RUN` | Which gstack skill triggered the commit (e.g., `ship`, `investigate`). |
+| `Skill-Run:` | `$COMMIT_SKILL_RUN` | Which agent skill triggered the commit (e.g., `ship`, `investigate`). |
 | `Test-Suite:` | `$COMMIT_TEST_SUITE` | `<pass>/<total>` if test results known (e.g., `247/247`). |
 | `Reviewed-By:` | `$COMMIT_REVIEWED_BY` | `codex` / `subagent` / `none` if `/review` or `/codex` ran since last commit on this branch. |
 | `Tool:` | `$COMMIT_TOOL` | `claude-code` / `codex` / `conductor` / `cloud` — what tool created the commit. |
 
-These trailers are the actual portfolio differentiator over plain Conventional Commits — `git log --pretty='%(trailers:key=Skill-Run)'` becomes agent telemetry.
+These trailers add structured provenance on top of plain Conventional Commits — `git log --pretty='%(trailers:key=Skill-Run)'` lists which skill produced each commit.
 
 **Trailer-block ordering:** All trailers MUST appear in a single contiguous block at message end. Never insert blank lines mid-block. Use `git interpret-trailers --in-place --trailer 'Skill-Run: ship' --trailer 'Tool: claude-code'`.
 
@@ -131,7 +131,7 @@ These trailers are the actual portfolio differentiator over plain Conventional C
 
 When committing to a branch destined for an upstream PR (detected via `gh repo view --json isFork`), `/commit` skill **strips** these trailers: `Skill-Run`, `Reviewed-By`, `Tool`. **Preserved on forks:** `Co-Authored-By`, `Tested`, `Refs`, `Signed-off-by`, `Policy-Override`.
 
-Rationale: upstream maintainers are a different audience than portfolio recruiters. Agent telemetry in upstream history is unwelcome by some maintainers; stripping on fork-bound branches keeps the differentiator on YOUR repos without polluting OTHER people's history.
+Rationale: some upstream maintainers do not want agent metadata in their history; stripping on fork-bound branches keeps these trailers in your own repositories without adding them to other projects' history.
 
 ### Banned patterns
 
@@ -142,7 +142,7 @@ Rationale: upstream maintainers are a different audience than portfolio recruite
 | `OPERATOR_ATTRIBUTION` | `florian asked\|as requested\|per request\|per my request` (case-insensitive) | "florian asked me to fix this" | Replace with WHY: "fix X because Y" |
 | `AGENT_SELF_TALK` | `addressed all\|fix all\|fixed all\|cleaned up everything` (case-insensitive) | "addressed all the review comments" | Name specific changes: "fix N+1 in Foo.query, dedupe Bar.helper" |
 
-These rules apply to the BODY only. Subjects rarely contain these phrases legitimately, but body false-positives like `my-config` or `our-team` made the original first-person regex too brittle, so first-person is NOT banned.
+These rules apply to the BODY only. Subjects rarely contain these phrases legitimately. First-person phrasing is NOT banned: a first-person regex also matches ordinary words such as `my-config` or `our-team`.
 
 #### Subject-only
 
