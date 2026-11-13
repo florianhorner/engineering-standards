@@ -2,16 +2,14 @@
 # BEGIN: engineering-standards-coderabbit
 #
 # Durable CodeRabbit auto-review settings.
-# Bootstrap copies this file into a consumer repo when `.coderabbit.yaml`
-# is missing; it will not clobber a hand-written file that lacks these
-# markers. These markers are a provenance stamp, not a section boundary:
-# re-running bootstrap-repo.sh replaces a stamped file WHOLESALE. Delete the
-# `# BEGIN:` line below to pin a repo's own copy against future refreshes.
+# Reference only: bootstrap-repo.sh neither installs nor refreshes this file;
+# templates/README.md describes the separate installation procedure. The
+# markers are a provenance stamp, not a section boundary.
 #
 # This yaml is the durable copy. CodeRabbit organization settings live in
-# its web UI, not here. After installing this file, set them to match
-# (incrementals off, Dependabot ignored) so included reviews are not spent
-# on every push.
+# its web UI, not here. After adding this file to a repository, set them to
+# match (incrementals off, Dependabot ignored) so included reviews are not
+# spent on every push.
 #
 # Do not turn auto-review fully off. First reviews on open/ready must keep
 # happening without the leftover dispatcher. Do not add a label-only gate

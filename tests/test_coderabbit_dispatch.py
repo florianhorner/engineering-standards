@@ -22,7 +22,7 @@ GOOD_BUDGET = (
     "3 reviews are currently available. Your 22 included PR review attempts "
     "over the past 7 days set your current allowance at 10 reviews per hour."
 )
-FOOTER_1114 = (
+FOOTER_COUNTLESS = (
     "**Included review availability:** 4 reviews are currently available. "
     "Your included PR review attempts over the past 7 days set your current "
     "allowance at 5 reviews per hour."
@@ -136,8 +136,8 @@ def base_env(**extra) -> dict:
 
 
 class ParseBudgetTest(unittest.TestCase):
-    def test_1114_footer_has_remaining_but_no_seven_day_count(self):
-        b = crd.parse_budget(FOOTER_1114)
+    def test_countless_footer_has_remaining_but_no_seven_day_count(self):
+        b = crd.parse_budget(FOOTER_COUNTLESS)
         self.assertEqual(b.hourly_remaining, 4)
         self.assertEqual(b.hourly_allowance, 5)
         self.assertIsNone(b.seven_day)
@@ -282,7 +282,7 @@ class DispatcherContractTest(unittest.TestCase):
         report = run(
             [repo("tools")],
             {"florianhorner/tools": [pr(1)]},
-            {("florianhorner/tools", 1): [comment(FOOTER_1114)]},
+            {("florianhorner/tools", 1): [comment(FOOTER_COUNTLESS)]},
         )
         self.assertEqual(report.outcome, crd.OUTCOME_BUDGET_HELD)
         self.assertEqual(would_review(report), [])
@@ -332,14 +332,14 @@ class DispatcherContractTest(unittest.TestCase):
     def test_paused_and_head_reviewed_skipped(self):
         report = run(
             [repo("mammamiradio")],
-            {"florianhorner/mammamiradio": [pr(1114, head=HEAD_A)]},
+            {"florianhorner/mammamiradio": [pr(7, head=HEAD_A)]},
             {
-                ("florianhorner/mammamiradio", 1114): [
+                ("florianhorner/mammamiradio", 7): [
                     comment(PAUSE_AND_COVERED % HEAD_A + "\n" + GOOD_BUDGET)
                 ]
             },
             {
-                ("florianhorner/mammamiradio", 1114): [
+                ("florianhorner/mammamiradio", 7): [
                     review("ok", commit_id=HEAD_A)
                 ]
             },
@@ -663,7 +663,7 @@ class BudgetCarryForwardTest(unittest.TestCase):
             {
                 ("florianhorner/tools", 3): [
                     comment(GOOD_BUDGET, when=older_when),
-                    comment(FOOTER_1114, when=newer_when),
+                    comment(FOOTER_COUNTLESS, when=newer_when),
                 ]
             },
         )
@@ -705,7 +705,7 @@ class BudgetCarryForwardTest(unittest.TestCase):
             {
                 ("florianhorner/tools", 3): [
                     comment(over, when="2026-09-07T09:00:00Z"),
-                    comment(FOOTER_1114, when="2026-09-07T12:00:00Z"),
+                    comment(FOOTER_COUNTLESS, when="2026-09-07T12:00:00Z"),
                 ]
             },
         )

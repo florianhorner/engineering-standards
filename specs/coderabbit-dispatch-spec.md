@@ -10,7 +10,7 @@ Enable/disable and where the job runs: [`docs/coderabbit-dispatch-operator.md`](
 
 1. **First review** is automatic via CodeRabbit (`reviews.auto_review.enabled: true` on open/ready). Starve-proof if this dispatcher is down.
 2. **Incrementals** are not automatic (`auto_incremental_review: false`). This dispatcher may name at most one later review per tick when budget allows.
-3. **7-day ceiling 35** included reviews. Fail closed if the count cannot be read. The summary labels `<30` in 7 days as the recover band and 35 as “don’t get worse”.
+3. **7-day ceiling 35** included reviews. Fail closed if the count cannot be read. The hourly allowance rises as the 7-day count falls, so the summary labels `<30` in 7 days as the recover band and 35 as “don’t get worse”.
 4. **Dependabot never. Any GitHub App author never.** Only human `florianhorner` PRs.
 5. **Drafts never.**
 6. **Repo set:** every `florianhorner` owned non-fork, plus allowlisted forks `lightener-studio` and `govee2mqtt-extended`. All other forks are out. Never comment on upstream.

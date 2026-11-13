@@ -22,7 +22,7 @@ Verification:
 - JSON validates: yes
 - Local hook generated: yes
 - Workflow installed: yes
-- Validator dry-run: run over existing commits (informational, not blocking)
+- Validator dry-run: some existing commits would fail (informational, not blocking)
 
 Suggested PR body Proof block (prose form):
 

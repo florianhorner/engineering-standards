@@ -11,14 +11,14 @@ against a clone of engineering-standards itself. Setup:
   B: src-tauri/Cargo.toml, scripts/package.json, plus the OLD root-only
      dependabot.yml already installed between the markers (upgrade path)
   C: package.json, server/package.json, plus a hand-added npm "/server" block
-     OUTSIDE the markers (a manual workaround for a root-only config)
+     OUTSIDE the markers (the workaround documented in issue #1)
   D: package.json, plus a hand-written config whose last top-level key is
      `registries:` rather than `updates:` (shape this script must refuse)
   E: package.json, plus a hand-written config already claiming every pair the
      generator would emit (npm "/" and github-actions "/")
 
 $ shellcheck -S warning bootstrap-repo.sh
-only SC2034 (C_GREEN unused); no findings in the dependabot generation code
+only pre-existing SC2034 (C_GREEN unused); no findings in the new code
 
 $ bash bootstrap-repo.sh /tmp/dep-test/A
 [4/14] generate .github/dependabot.yml from detected manifests ... PASS
@@ -30,14 +30,14 @@ generated: github-actions ["/", "/actions/my-action"], npm ["/", "/server"],
   - node_modules/junk/package.json never appears (git ls-files, not find)
   - both multi-directory blocks carry a groups: entry; the single-directory
     docker block does not
-  - no pip block: repo has no Python manifest
+  - no pip block: repo has no Python manifest (the old snippet emitted one anyway)
 
 $ bash bootstrap-repo.sh /tmp/dep-test/B          # upgrade from the old snippet
 [4/14] ... PASS  dependabot.yml (refreshed in place as document — 3 ecosystem(s), 3 director(ies))
 before: npm "/", pip "/"            (both matched nothing in this repo)
 after:  github-actions "/", npm "/scripts", cargo "/src-tauri"
   - refreshed between the existing markers, no double-append
-  - cargo is detected from src-tauri/Cargo.toml
+  - cargo was not in the old template's ecosystem list at all
 
 $ bash bootstrap-repo.sh /tmp/dep-test/C          # collision guard + list continuation
 [4/14] ... PASS  dependabot.yml (refreshed in place as items — 2 ecosystem(s), 2 director(ies))
@@ -48,11 +48,11 @@ resulting file parses to THREE update blocks in one list:
       npm /server prefix=build   (hand-written, untouched)
       npm /       prefix=chore   (generated)
       github-actions / prefix=chore (generated)
-  - the managed block is emitted as bare list entries here. A second
-    `version:`/`updates:` document inside the markers would give the file
-    duplicate top-level keys, and YAML lets the later one win: the
-    hand-written /server block would silently stop being applied.
-    Verified by parsing: the two-document shape yields 2 blocks, this one 3.
+  - the managed block is emitted as bare list entries here. Writing a second
+    `version:`/`updates:` document inside the markers — what this script did
+    before — gave the file duplicate top-level keys, and YAML lets the later
+    one win: the hand-written /server block silently stopped being applied.
+    Verified by parsing: the old shape yielded 2 blocks, the new shape 3.
 
 $ bash bootstrap-repo.sh /tmp/dep-test/D          # unrecognized layout
 [4/14] generate .github/dependabot.yml from detected manifests ... WARN existing
@@ -65,13 +65,13 @@ $ bash bootstrap-repo.sh /tmp/dep-test/E          # nothing left to manage
      left to manage — every detected manifest is already claimed by blocks
      outside the markers; file left untouched
 WARN 2 director(ies) already claimed by a block outside the markers
-file byte-for-byte unchanged. Without this guard the generator would write
-`updates:` with an empty list, which Dependabot rejects outright.
+file byte-for-byte unchanged. Without this guard the generator would have
+written `updates:` with an empty list, which Dependabot rejects outright.
 
 $ bash bootstrap-repo.sh /tmp/dep-test/A          # second run, idempotency
 IDEMPOTENT: run 2 output byte-identical to run 1
-(the marker-refresh path emits no blank line after "# BEGIN:", matching the
- create path)
+(required fixing the marker-refresh awk, which emitted a blank line after
+ "# BEGIN:" that the create path does not)
 
 $ python3 -c 'yaml.safe_load_all(...)' — parse + duplicate-pair check
 A: 1 doc, 5 pairs, duplicates=none

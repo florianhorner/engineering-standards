@@ -116,5 +116,5 @@ The pre-push hook logs every `--no-verify` to `~/.commit-bypass.log` with the ov
 ### Where the rules live
 
 - **Canonical spec:** https://github.com/florianhorner/engineering-standards/blob/main/specs/commit-message-spec.md
-- **Vendored copy in this repo:** [`.config/commit-rules.json`](.config/commit-rules.json) — SHA-pinned snapshot consumed by the local hook and local commit tooling. CI uses the canonical rules at the called workflow's exact SHA and checks this copy only as installation metadata. Do not hand-edit.
+- **Vendored copy in this repo:** [`.config/commit-rules.json`](.config/commit-rules.json) — SHA-pinned snapshot consumed by the local hook and local commit tooling. CI uses the canonical rules at the called workflow's exact SHA and checks this copy only as installation metadata. In this repository it is kept identical to `specs/commit-rules.json`; change both together.
 <!-- END: commit-message-standards -->

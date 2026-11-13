@@ -1,12 +1,10 @@
 # Hourly shadow dispatcher for CodeRabbit incrementals.
 #
-# Why this is a GitHub Actions workflow on ubuntu-latest, not a Claude Code
-# cloud routine and not a per-repo job in mammamiradio: same rationale as
-# fleet-audit-monthly.yml. A hosted runner enumerates `gh repo list
-# florianhorner`. Quota is per identity, so one central job in
-# engineering-standards sees every owned non-fork plus the allowlisted forks.
-# GITHUB_TOKEN is enough for shadow reads on public repos. There is no GitHub
-# App in this workflow — live cross-repo writes are a follow-up PR.
+# Why this is one central workflow on a hosted runner and not a per-repo
+# job: quota is per identity, so one job in engineering-standards that
+# enumerates `gh repo list florianhorner` sees every owned non-fork plus the
+# allowlisted forks. GITHUB_TOKEN is enough for shadow reads on public repos.
+# There is no GitHub App in this workflow, so it cannot write to other repos.
 #
 # REPORT-ONLY. Never comments, never labels, never writes to any other repo.
 # Job summary only — not an issue every hour (unlike monthly fleet-audit).
