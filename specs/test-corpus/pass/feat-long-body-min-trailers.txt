@@ -1,6 +1,6 @@
 feat(jamendo): add country and order filter to track search
 
-Why: Italy launch needs region-scoped catalog; current global feed is 92% non-IT.
+Why: search returns tracks from every region; listeners need country-scoped results.
 Tested: integration tests for IT/DE/FR scopes; unit tests for order param parsing.
 Refs: closes #134
 

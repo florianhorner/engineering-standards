@@ -40,7 +40,7 @@ chore: addressed all the review comments             # rule_id: AGENT_SELF_TALK
 ```
 feat(auth): add OAuth flow
 
-florian asked me to add this                         # rule_id: OPERATOR_ATTRIBUTION (body)
+added this as requested                              # rule_id: OPERATOR_ATTRIBUTION (body)
 ```
 
 ### Body-when-required rule
@@ -78,7 +78,7 @@ Provenance belongs in commit trailers instead:
 Co-Authored-By: <agent name> <noreply@example.com>
 ```
 
-A trailer is structured, greppable and rendered natively by GitHub; a sentence in a body is an unverifiable claim anyone could type. Cloud agent sessions push under the repo owner's own GitHub account, so there is no bot login for the allowlist above to key on — the trailer is the only provenance signal that carries weight. This rule applies to every harness, not one vendor's.
+A trailer is structured, greppable and rendered natively by GitHub; a sentence in a body is an unverifiable claim anyone could type. An agent that pushes under a person's GitHub account has no bot login for the bot allowlist below to key on — the trailer is then the only provenance signal that carries weight. This rule applies to every harness, not one vendor's.
 
 ### Exempt subjects (skip the format check entirely)
 
@@ -116,5 +116,5 @@ The pre-push hook logs every `--no-verify` to `~/.commit-bypass.log` with the ov
 ### Where the rules live
 
 - **Canonical spec:** https://github.com/florianhorner/engineering-standards/blob/main/specs/commit-message-spec.md
-- **Vendored copy in this repo:** [`.config/commit-rules.json`](.config/commit-rules.json) — SHA-pinned snapshot consumed by the local hook and local commit tooling. CI uses the canonical rules at the called workflow's exact SHA and checks this copy only as installation metadata. Do not hand-edit.
+- **Vendored copy in this repo:** [`.config/commit-rules.json`](.config/commit-rules.json) — SHA-pinned snapshot consumed by the local hook and local commit tooling. CI uses the canonical rules at the called workflow's exact SHA and checks this copy only as installation metadata. In this repository it is kept identical to `specs/commit-rules.json`; change both together.
 <!-- END: commit-message-standards -->

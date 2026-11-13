@@ -2,7 +2,7 @@
 
 Central, report-only ranker for **later** CodeRabbit reviews. First reviews stay on CodeRabbit auto-review. This job does **not** burn leftover hourly slots, does **not** comment, and does **not** write to other repos.
 
-Quota is per GitHub identity. The scheduler lives in this repo, not in mammamiradio and not as N per-repo workflows.
+Quota is per GitHub identity. The scheduler lives in this repo, not as N per-repo workflows.
 
 Enable/disable and where the job runs: [`docs/coderabbit-dispatch-operator.md`](../docs/coderabbit-dispatch-operator.md).
 
@@ -10,7 +10,7 @@ Enable/disable and where the job runs: [`docs/coderabbit-dispatch-operator.md`](
 
 1. **First review** is automatic via CodeRabbit (`reviews.auto_review.enabled: true` on open/ready). Starve-proof if this dispatcher is down.
 2. **Incrementals** are not automatic (`auto_incremental_review: false`). This dispatcher may name at most one later review per tick when budget allows.
-3. **7-day ceiling 35** included reviews. Fail closed if the count cannot be read. Goal is to climb back toward 8–10/hour (`<30` in 7 days is the recover band; 35 is “don’t get worse”).
+3. **7-day ceiling 35** included reviews. Fail closed if the count cannot be read. The hourly allowance rises as the 7-day count falls, so the summary labels `<30` in 7 days as the recover band and 35 as “don’t get worse”.
 4. **Dependabot never. Any GitHub App author never.** Only human `florianhorner` PRs.
 5. **Drafts never.**
 6. **Repo set:** every `florianhorner` owned non-fork, plus allowlisted forks `lightener-studio` and `govee2mqtt-extended`. All other forks are out. Never comment on upstream.
@@ -20,7 +20,7 @@ Enable/disable and where the job runs: [`docs/coderabbit-dispatch-operator.md`](
 10. **Executor:** GitHub Actions `ubuntu-latest`, `gh` API, same rationale as `fleet-audit-monthly.yml`.
 11. **Live identity (follow-up PR, not this one):** a small GitHub App installation token for cross-repo writes. CodeRabbit’s own App does the actual review. No PAT.
 
-Reference skip class: mammamiradio #1114 — auto-paused mid-churn with HEAD already reviewed. Skip until HEAD is unreviewed again.
+Paused skip class: CodeRabbit auto-paused the PR and HEAD is already reviewed. Skip until HEAD is unreviewed again.
 
 Fair Usage: included reviews that **run** count; rate-limited attempts do not. Do not spam `@coderabbitai rate limit` in shadow.
 
@@ -39,7 +39,7 @@ Parse CodeRabbit PR comment / review footers (`N reviews currently available`, `
 
 Do not request a review just because hourly remaining > 0.
 
-**Carry-forward window (24h).** CodeRabbit posts two footer shapes and only one carries the 7-day integer — the mammamiradio #1114 shape reads *"Your included PR review attempts over the past 7 days set your current allowance at 5 reviews per hour"*, with no number. Taking the newest budget-bearing comment wholesale therefore meant one count-less footer anywhere in the fleet pinned every later tick to `BUDGET_HELD` and the ranking never ran at all. So: hourly remaining and allowance come from the newest footer, and the 7-day integer comes from the newest footer **that actually carried one**, provided it is at most 24h older. Outside that window, or with unparseable timestamps, the count stays unknown and the job holds. A carried count is labelled with its age in the summary and is held against the same ceiling — it is a bounded relaxation of fail-closed, not a removal of it.
+**Carry-forward window (24h).** CodeRabbit posts two footer shapes and only one carries the 7-day integer — the other reads *"Your included PR review attempts over the past 7 days set your current allowance at 5 reviews per hour"*, with no number. Taking the newest budget-bearing comment wholesale would therefore let one count-less footer anywhere in the fleet pin every later tick to `BUDGET_HELD`, and the ranking would never run. So: hourly remaining and allowance come from the newest footer, and the 7-day integer comes from the newest footer **that actually carried one**, provided it is at most 24h older. Outside that window, or with unparseable timestamps, the count stays unknown and the job holds. A carried count is labelled with its age in the summary and is held against the same ceiling — it is a bounded relaxation of fail-closed, not a removal of it.
 
 ## Partial data
 
@@ -49,7 +49,7 @@ Per-repo and per-PR reads are isolated. A 403, a timeout, or an archived repo wi
 
 ## Request budget
 
-Comments and reviews cost two requests per PR, against every open PR on every owned repo. **Reviews** are fetched only for PRs that survive the cheap pre-filter (fork allowlist, draft, Dependabot, GitHub App author, non-human) — a PR that can never be a candidate has no use for its review objects. **Comments** are fetched for every open PR regardless, because they are the only budget-footer source and the pre-filtered PRs are exactly where CodeRabbit still burns quota while the org dashboard has incrementals on. Narrowing the comment reads would starve the one signal that already fails closed. Pagination runs at `per_page=100`, and every `gh` call has a 60s timeout so one stalled request cannot hang the tick until the workflow timeout.
+Comments and reviews cost two requests per PR, against every open PR on every owned repo. **Reviews** are fetched only for PRs that survive the cheap pre-filter (fork allowlist, draft, Dependabot, GitHub App author, non-human) — a PR that can never be a candidate has no use for its review objects. **Comments** are fetched for every open PR regardless, because they are the only budget-footer source and the pre-filtered PRs are exactly where CodeRabbit still spends quota whenever organization settings run incrementals on them. Narrowing the comment reads would starve the one signal that already fails closed. Pagination runs at `per_page=100`, and every `gh` call has a 60s timeout so one stalled request cannot hang the tick until the workflow timeout.
 
 ## `.coderabbit.yaml`
 

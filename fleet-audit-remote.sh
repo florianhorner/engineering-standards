@@ -2,20 +2,19 @@
 # fleet-audit-remote.sh — GitHub-hosted-runner counterpart to fleet-audit.sh.
 #
 # Why this exists (and why it's a SEPARATE script, not a flag on
-# fleet-audit.sh): fleet-audit.sh walks LOCAL git checkouts under ~/repos and
-# ~/conductor/workspaces — that only works because it runs on Florian's own
-# machine. A GitHub Actions cloud routine (or any hosted runner) has no
-# filesystem access to those paths, full stop. This script instead enumerates
-# repos via `gh repo list` (limit 200), including repos without a local
-# checkout, and reports only the PUBLIC ones — the report can land in a public
-# issue or an Actions summary. This is NOT proof of full-fleet coverage: a
-# repository absent from the table may be private, unlisted or beyond the cap.
+# fleet-audit.sh): fleet-audit.sh walks LOCAL git checkouts, so it only works
+# on a machine that has those clones. A GitHub-hosted runner has no such
+# checkouts. This script instead enumerates repos via `gh repo list` (limit
+# 200), including repos without a local checkout, and reports only the PUBLIC
+# ones — the report can land in a public issue or an Actions summary. This is
+# NOT proof of full-fleet coverage: a repository absent from the table may be
+# private, unlisted or beyond the cap.
 #
 # Bucket model is simpler here than in fleet-audit.sh: `gh repo list
-# florianhorner` only ever returns repos florianhorner owns or has direct
-# access to, so the THIRD-PARTY-CLONE bucket (arbitrary local clones of OTHER
-# people's repos, e.g. hacksider/Deep-Live-Cam) cannot occur — there is
-# nothing to walk that isn't his. Buckets are just:
+# "$ENGSTD_OWNER"` only returns that owner's repositories, and the inventory
+# check below rejects any other owner, so the THIRD-PARTY-CLONE bucket (local
+# clones of other owners' repos, e.g. other-owner/some-repo) cannot occur.
+# Buckets are just:
 #   OWN       - isFork:false
 #   OWN-FORK  - isFork:true
 #
@@ -40,8 +39,7 @@
 # never is (forks carry author notes and upstream-tracking concerns), STALE
 # never is for any bucket (a SHA-pin refresh changes what CI enforces, so it
 # stays a deliberate visible action), and archived repos never enter the
-# report at all. That rule came from fleet-audit.sh's --apply gate, which no
-# longer exists; this script is now the only place it is written down.
+# report at all. This script is the only place that rule is decided.
 # Keeping the decision here means an agent consuming the artifact has no
 # policy left to interpret — it filters on a boolean. Eligibility is not an
 # instruction to install: adoption stays a per-repository decision.
@@ -165,7 +163,7 @@ except (ValueError, KeyError, TypeError, AttributeError):
 }
 
 # ---------------------------------------------------------------------------
-# Enumerate Florian's real GitHub repos (owned or accessible), not a local
+# Enumerate ENGSTD_OWNER's repos via the GitHub API, not a local
 # filesystem walk.
 # ---------------------------------------------------------------------------
 REPO_LIST_JSON="$(gh repo list "$ENGSTD_OWNER" --limit 200 --json nameWithOwner,isFork,parent,isArchived,visibility)"
@@ -262,13 +260,10 @@ except Exception:
 done <<< "$REPO_ROWS"
 
 # ---------------------------------------------------------------------------
-# Also flag engineering-standards itself if MISSING — it's the SSOT and
-# currently doesn't consume its own commit-lint.yml includer. This is a known,
-# correct finding from a prior audit, not a bug to "fix" here.
+# engineering-standards itself is classified like any other repository: it
+# is in the `gh repo list` output, so the loop above covers it and no
+# special-casing is needed.
 # ---------------------------------------------------------------------------
-# (already covered by the loop above since engineering-standards is in
-# `gh repo list florianhorner` — no special-casing needed beyond this comment
-# documenting why it's expected to show MISSING.)
 
 # ---------------------------------------------------------------------------
 # Sort: problems first (MISSING, STALE), then FRESH, alphabetical within group.
@@ -385,7 +380,7 @@ report = {
     "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     "upstream_sha": upstream_sha,
     "policy": {
-        "source": "fleet-audit-remote.sh (inherited from the removed fleet-audit.sh --apply gate)",
+        "source": "fleet-audit-remote.sh",
         "auto_remediable": "bucket OWN + status MISSING",
         "never_auto": [
             "OWN-FORK (any status)",
@@ -420,8 +415,8 @@ if [ "$FILE_ISSUE" -eq 0 ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# File or update a GitHub issue so this is genuinely visible to Florian
-# (issue notification), not just buried in the step summary.
+# File or update a GitHub issue so this is genuinely visible to the repo's
+# watchers (issue notification), not just buried in the step summary.
 # ---------------------------------------------------------------------------
 : "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY must be set to file an issue}"
 

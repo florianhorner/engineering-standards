@@ -3,12 +3,11 @@
 # shadow CodeRabbit leftover dispatcher.
 #
 # Why this exists (and why it's a SEPARATE script in this repo, not a
-# mammamiradio workflow and not a Claude Code cloud routine): CodeRabbit
-# Team allowance is per developer identity. Shotgun auto-incrementals on
-# every push burn that quota; other repos starve. The countermeasure has
-# to see every florianhorner-owned repo in one tick, so it lives next to
-# fleet-audit-remote.sh and uses the same hosted-runner enumerator
-# (`gh repo list florianhorner`).
+# per-repo workflow): CodeRabbit Team allowance is per developer identity.
+# Automatic incremental reviews on every push spend that shared quota
+# across all repos. The countermeasure has to see every owned repo in one
+# tick, so it lives next to fleet-audit-remote.sh and uses the same
+# hosted-runner enumerator (`gh repo list florianhorner`).
 #
 # This script is REPORT-ONLY. There is no --apply. It never comments
 # `@coderabbitai review`, never adds labels, never writes to any other
@@ -24,7 +23,7 @@
 #
 # Env:
 #   GH_TOKEN / GITHUB_TOKEN   auth for `gh` (set by Actions)
-#   CODERABBIT_DISPATCH       literal 0 disables (same as LAND_QUEUE)
+#   CODERABBIT_DISPATCH       literal 0 disables
 #   GITHUB_STEP_SUMMARY       if set, markdown is appended
 #   CODERABBIT_DISPATCH_ROOT  repo root override (tests)
 
@@ -51,10 +50,10 @@ for arg in "$@"; do
   esac
 done
 
-# Kill switch. Same shape as mammamiradio land-queue: file is the on-switch,
-# literal 0 on the repo variable is the off-switch. Checked in this script so
-# "off" means off from a local run, a second workflow, or `workflow_dispatch`,
-# not only from the hourly job's `if:`.
+# Kill switch. The file is the on-switch, and a literal 0 on the repo
+# variable is the off-switch. Checked in this script so "off" means off
+# from a local run, a second workflow, or `workflow_dispatch`, not only
+# from the hourly job's `if:`.
 if [ ! -f "$ENABLE_FILE" ] || [ "${CODERABBIT_DISPATCH:-1}" = "0" ]; then
   REPORT="# CodeRabbit dispatch (shadow)
 

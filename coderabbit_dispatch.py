@@ -2,9 +2,10 @@
 """Shadow CodeRabbit leftover dispatcher — report-only decision engine.
 
 Quota is per GitHub identity, not per repo. This job lives in
-florianhorner/engineering-standards and enumerates Florian's repos the same
-way fleet-audit-remote.sh does (`gh repo list florianhorner` on a hosted
-runner). It never comments, never labels, and never writes to other repos.
+florianhorner/engineering-standards and enumerates the `OWNER` account's
+repos the same way fleet-audit-remote.sh does (`gh repo list florianhorner`
+on a hosted runner). It never comments, never labels, and never writes to
+other repos.
 
 First reviews stay on CodeRabbit auto_review. This dispatcher only *names*
 at most one later review when the parsed 7-day included count is known and
@@ -18,8 +19,8 @@ Three runtime properties worth not regressing:
 * Per-repo and per-PR reads are isolated. One 403 must not cost the whole tick.
 * Ineligible PRs skip the reviews request, but still have their comments read:
   comments are the only budget-footer source, and the ineligible PRs (drafts,
-  Dependabot) are where CodeRabbit still burns quota until the org dashboard is
-  flipped.
+  Dependabot) are where CodeRabbit still spends quota whenever organization
+  settings run incremental reviews on them.
 
 `gh api --paginate` already merges JSON arrays across pages into one array, so
 --slurp and page flattening are not needed here; per_page is raised instead to
@@ -46,7 +47,7 @@ TIEBREAK_REPO = "mammamiradio"
 SEVEN_DAY_CEILING = 35
 RECOVER_BAND_MAX = 29  # <30 in 7 days is the recover band
 # How far back a 7-day count may be carried forward when the *newest* CodeRabbit
-# footer omits the integer (the mammamiradio #1114 footer shape does). Without
+# footer omits the integer (one of CodeRabbit's footer shapes does). Without
 # this, one count-less footer anywhere in the fleet pins the job to BUDGET_HELD
 # forever and the ranking never gets exercised. Bounded so a carried-forward
 # count can only be ~one day behind reality.
@@ -79,7 +80,7 @@ KIND_STALE = "head-stale"
 CMD_INCREMENTAL = "@coderabbitai review"
 CMD_FULL = "@coderabbitai full review"
 
-# Footers observed on Team (mammamiradio #1114) and public rate-limit comments.
+# Footer shapes from CodeRabbit Team review comments and public rate-limit comments.
 _RE_SEVEN_DAY = re.compile(
     r"(\d+)\s+included\s+PR\s+review\s+attempts\s+over\s+the\s+past\s+7\s+days",
     re.IGNORECASE,
@@ -254,11 +255,11 @@ def merge_budget(current: Budget, incoming: Budget, observed_at: Optional[str]) 
     """Newest budget-bearing comment is the source of truth.
 
     The 7-day integer is *not* taken from the newest comment unconditionally:
-    CodeRabbit posts two footer shapes, and the mammamiradio #1114 shape omits
-    the integer entirely ("Your included PR review attempts over the past
-    7 days set your current allowance at 5 reviews per hour"). Taking the newest
-    comment wholesale meant a single count-less footer anywhere in the fleet
-    pinned the job to BUDGET_HELD forever, so the ranking never ran.
+    CodeRabbit posts two footer shapes, and one of them omits the integer
+    entirely ("Your included PR review attempts over the past 7 days set your
+    current allowance at 5 reviews per hour"). Taking the newest comment
+    wholesale would let a single count-less footer anywhere in the fleet pin
+    the job to BUDGET_HELD forever, so the ranking would never run.
 
     Carry-forward is handled in collect_budget(); this function only tracks the
     newest budget-bearing observation.
@@ -462,7 +463,7 @@ def classify_pr(
     if paused and head_reviewed:
         return _skip(
             row,
-            "paused and HEAD already reviewed (mammamiradio #1114 class) — wait until HEAD is unreviewed",
+            "paused and HEAD already reviewed — wait until HEAD is unreviewed",
         )
 
     if head_reviewed:
@@ -829,7 +830,7 @@ def fetch_snapshot() -> tuple[
     Two properties this function is responsible for:
 
     1. **Per-repo isolation.** One archived repo with issues disabled, one 403,
-       or one timeout used to abort the whole tick and produce no summary at
+       or one timeout must not abort the whole tick and leave no summary at
        all. Every per-repo and per-PR call is isolated; failures are collected
        and rendered, and the rest of the fleet is still ranked. Only the
        top-level repo enumeration is fatal — without it there is nothing to do.
@@ -840,11 +841,10 @@ def fetch_snapshot() -> tuple[
 
        Comments are still fetched for *every* PR, on purpose. They are the only
        budget-footer source, and the pre-filtered PRs are exactly the ones most
-       likely to carry the freshest footer today: the org CodeRabbit dashboard
-       has not been flipped yet, so incrementals still fire on Dependabot and
-       draft PRs. Skipping those reads would narrow the one signal that already
-       fails closed — the trade the shipped yaml eventually makes safe, but not
-       while the org UI is still shotgunning.
+       likely to carry the freshest footer whenever organization settings still
+       run incrementals on Dependabot and draft PRs. Skipping those reads would
+       narrow the one signal that already fails closed. The shipped yaml makes
+       that trade safe only once the organization settings match it.
     """
     errors: list[str] = []
     repos = gh_json(

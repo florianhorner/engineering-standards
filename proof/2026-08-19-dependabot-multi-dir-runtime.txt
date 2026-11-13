@@ -1,7 +1,7 @@
 bootstrap-repo.sh step 4 — dependabot generation (issue #1), runtime verification, 2026-08-19
 
-Environment: Amazon Linux 2023, bash 5.2, git 2.47, python3 3.9 + pyyaml 5.4.1,
-jsonschema 3.2, shellcheck 0.11.0.
+Environment: bash 5.2, git 2.47, python3 3.9 + pyyaml 5.4.1, jsonschema 3.2,
+shellcheck 0.11.0.
 Bootstrap run end to end (all 14 steps) against four synthetic repos, then
 against a clone of engineering-standards itself. Setup:
 
@@ -89,21 +89,8 @@ A: VALID   B: VALID   C: VALID   D: VALID   E: VALID   self: VALID
 $ git clone engineering-standards /tmp/dep-test/self && bash bootstrap-repo.sh
 [4/14] generate .github/dependabot.yml from detected manifests ... PASS
 github-actions ["/", "/actions/ha-app-docs-lint"]
-  - "/actions/ha-app-docs-lint" is the blind spot this repo was living with:
-    Dependabot PR #12 bumped actions/setup-python to v7 in all three workflow
-    files and never touched actions/ha-app-docs-lint/action.yml, which still
-    pins actions/setup-python@ece7cb06 (= v6, resolved via the GitHub API).
+  - "/actions/ha-app-docs-lint" holds a composite action whose action.yml
+    pins actions/setup-python. A root-only github-actions entry never scans
+    it, so that pin is not bumped together with the workflow files.
   - npm/pip/docker blocks dropped: this repo tracks no manifest for any of them.
   - the committed .github/dependabot.yml is byte-identical to this output (diff clean).
-
-Fleet blast radius at time of fix (gh api tree scan, 21 non-archived repos):
-  flora-signal          server/package.json                              MISSED
-  ha-fp2-sleep          aqara_fp2_sleep/Dockerfile + 8x videos/*         MISSED
-  mammamiradio          ha-addon/mammamiradio/Dockerfile                 MISSED
-  gstack-for-kiro       .claude/skills/gstack/package.json               MISSED
-  engineering-standards actions/ha-app-docs-lint/action.yml              MISSED (fixed here)
-  tennis-watcher        src-tauri/Cargo.toml        (not yet bootstrapped)
-  gh-workflows          scripts/package.json        (not yet bootstrapped)
-Remediation for the four consumer repos is a plain re-run of bootstrap-repo.sh.
-ha-fp2-sleep's eight videos/* trees are fixtures/templates and stay skipped by
-default; its Dockerfile is picked up.

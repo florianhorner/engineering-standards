@@ -82,9 +82,9 @@ Detection and remediation are deliberately split, and only detection is autonomo
 | Phase | Runs as | Cadence | Writes |
 |---|---|---|---|
 | 1, detect | `fleet-audit-monthly.yml` (GitHub Actions) | monthly, 08:07 UTC on the 1st | issue in this repo plus the `fleet-audit-report` artifact |
-| 2, remediate | Claude Code cloud routine, **poke-only** (no schedule) | only when a human fires it | draft PRs in downstream repos |
+| 2, remediate | agent job defined outside this repository, **manual only** (no schedule) | only when its operator starts it | draft PRs in downstream repos |
 
-**Why phase 2 has no schedule.** It is the phase with push access to repos outside this one. Leaving it unscheduled means the unattended monthly job stays read-only, and every cross-repo write traces back to a person firing the routine. Fire it from the Routines list, or with `fire_trigger` from a session.
+**Why phase 2 has no schedule.** It is the phase with push access to repos outside this one. Leaving it unscheduled means the unattended monthly job stays read-only, and every cross-repo write traces back to a person starting the job.
 
 **Why phase 2 reads the artifact, not the issue.** The monthly report reaches the issue as a body plus follow-up comments, and comments are writable by anyone who can comment on the repo. An agent that parsed that thread to decide which repos to push to would be taking its target list from an attacker-writable surface. `fleet-audit.json`, uploaded as a workflow-run artifact, is written only by the workflow and is immutable once the run finishes.
 
@@ -96,7 +96,7 @@ Remaining guardrails, which do not depend on the agent behaving:
 
 - Draft PRs only, never merge, never enable auto-merge.
 - Branch protection with required review on downstream repos, the backstop if everything above fails.
-- `add_repo` re-authorizes per call, so the routine cannot reach repos outside the account's granted set even if its instructions are subverted.
+- The job's GitHub access is limited to the repositories its operator grants, and each repository is authorized when the job adds it, so it cannot reach other repos even if its instructions are subverted.
 
 ```bash
 # Reproduce phase 1 locally (needs gh auth):
